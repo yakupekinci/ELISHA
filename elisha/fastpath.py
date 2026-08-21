@@ -65,8 +65,8 @@ class FastPath:
                 return r.message if r.success else f"Silmedim: {r.error}"
 
         # --- müzik/şarkı (uygulama açmadan önce) ---
-        if any(w in t for w in ["çal ", " çal", "şarkı", "sarki", "müzik", "muzik"]):
-            if not any(a in t for a in ["spotify", "chrome", "safari", "ses "]):
+        if any(w in t for w in ["çal ", " çal", "çalar", "oynat", "şarkı", "sarki", "müzik", "muzik", "dinle"]):
+            if not any(a in t for a in ["spotify uygulaması", "chrome", "safari", "ses seviyesi"]):
                 return self._music(text)
 
         # --- bilinen site/url aç ---
@@ -170,10 +170,11 @@ class FastPath:
         return r.message if r.success else f"Dosya oluşturamadım: {r.error}"
 
     def _music(self, original: str) -> str:
-        q = re.sub(r"\b(elişa|eleşa|elisha|hey|çal|oynat|başlat|bir|şarkı|sarki|müzik|muzik|aç|lütfen)\b",
+        q = re.sub(r"\b(elişa|eleşa|elisha|hey|çal|oynat|başlat|bir|şarkı|sarki|"
+                   r"müzik|muzik|aç|lütfen|dinle|bana|bence|güzel|en iyi|iyi)\b",
                    "", original, flags=re.I).strip(" ,.?!")
-        if len(q) < 3:
-            q = "türkçe pop"
+        if len(q) < 2:
+            q = "türkçe pop hit 2024"
         r = self._run("play_music", {"query": q}, "🎵 Müziği başlatıyorum...")
         return r.message if r.success else f"Müziği başlatamadım: {r.error}"
 

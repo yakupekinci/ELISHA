@@ -75,19 +75,29 @@ def js_api():
         def keep_alive(self):
             STATE["last"] = time.time()
             return "ok"
+        def switch_to_overlay(self):
+            window.load_url("http://localhost:8765/overlay.html")
+            return "ok"
+        def switch_to_fullscreen(self):
+            window.load_url("http://localhost:8765/fullscreen.html")
+            return "ok"
     return Api()
 
-# Masaüstü overlay — şeffaf, çerçevesiz, her zaman üstte, GİZLİ BAŞLAR
+# YENİ HUD TASARIM — tam ekran, her zaman üstte, GİZLİ BAŞLAR
+import AppKit as _AK
+_screen = _AK.NSScreen.mainScreen().frame()
+_W, _H = int(_screen.size.width), int(_screen.size.height)
+
 window = webview.create_window(
     "ELİŞA",
-    "http://localhost:8765/overlay.html",
-    width=380, height=560,
+    "http://localhost:8765/fullscreen.html",
+    width=_W, height=_H,
     frameless=True,
     on_top=True,
     hidden=True,
-    transparent=True,
-    easy_drag=True,
-    background_color="#000000",
+    transparent=False,
+    easy_drag=False,
+    background_color="#050508",
     js_api=js_api(),
 )
 
@@ -98,12 +108,7 @@ def do_hide():
 
 def do_show(reason=""):
     try:
-        import AppKit
-        f = AppKit.NSScreen.mainScreen().frame()
-        # Sağ alt köşede, dock'un üstünde
-        x = int(f.size.width - 400)
-        y = int(f.size.height - 600)
-        window.move(x, y)
+        window.move(0, 0)  # tam ekran — sol üst köşe
     except Exception:
         pass
     window.show()

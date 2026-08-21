@@ -228,12 +228,12 @@ class TakeScreenshotTool(Tool):
 
 class PlayMusicTool(Tool):
     name = "play_music"
-    description = ("Müzik/şarkı çalmak için kullanılır. YouTube'da arama yapıp tarayıcıda açar. "
-                   "Kullanıcı şarkı/müzik çal derse kullan, örn. query='avici wake up'. "
-                   "Uygulama açmaktan farklıdır; müzik isteklerinde bunu tercih et.")
+    description = ("Müzik/şarkı çalmak için kullanılır. YouTube'da arama yapıp ilk videoyu "
+                   "otomatik oynatır. Kullanıcı şarkı/müzik/çal derse kullan. "
+                   "query'e sanatçı + şarkı adını yaz, örn. 'Tarkan Şımarık' veya 'edm mix 2024'.")
     parameters = {
         "type": "object",
-        "properties": {"query": {"type": "string", "description": "Aranacak şarkı veya sanatçı adı"}},
+        "properties": {"query": {"type": "string", "description": "Şarkı adı veya sanatçı, örn. 'Tarkan Şımarık'"}},
         "required": ["query"],
     }
     risk_level = RiskLevel.LOW
@@ -242,13 +242,30 @@ class PlayMusicTool(Tool):
         query = str(args.get("query", "")).strip()
         if not query:
             return ToolResult(False, self.name, error="Şarkı adı boş.")
-        url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}"
         try:
+            # Önce YouTube'da ilk video ID'sini bul
+            search_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}"
+            import urllib.request as _req
+            headers = {"User-Agent": "Mozilla/5.0"}
+            req = _req.Request(search_url, headers=headers)
+            html = _req.urlopen(req, timeout=8).read().decode("utf-8", errors="ignore")
+            # video ID'yi çek
+            import re as _re
+            m = _re.search(r'"videoId":"([A-Za-z0-9_-]{11})"', html)
+            if m:
+                vid = m.group(1)
+                play_url = f"https://www.youtube.com/watch?v={vid}&autoplay=1"
+            else:
+                play_url = search_url
+            subprocess.Popen(["open", play_url])
+            return ToolResult(True, self.name,
+                              message=f"'{query}' çalıyor 🎵", data={"query": query, "url": play_url})
+        except Exception as e:
+            # Fallback: arama sayfası aç
+            url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}"
             subprocess.Popen(["open", url])
             return ToolResult(True, self.name,
-                              message=f"'{query}' YouTube'da açılıyor.", data={"query": query})
-        except Exception as e:
-            return ToolResult(False, self.name, error=str(e))
+                              message=f"'{query}' YouTube'da aranıyor.", data={"query": query})
 
 
 class OpenUrlTool(Tool):
