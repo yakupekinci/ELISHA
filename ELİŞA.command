@@ -1,5 +1,6 @@
 #!/bin/bash
+# ELİŞA başlatıcı — tek giriş noktası
 cd "$(dirname "$0")"
 export PATH="/Users/arxes/.local/bin:$PATH"
 open -a Ollama 2>/dev/null; sleep 2
-python3 -u app/desktop.py
+exec python3 -u app/desktop_app.py

@@ -151,21 +151,19 @@ class ElishaOrchestrator:
         print(f"🧠 LLM ham: {llm_raw[:400]}")
         clean, skill_results = self.skills.handle_text(llm_raw)
 
-        # Fallback: LLM eylem üretmediyse ama kullanıcı açıkça sistem komutu verdiyse mock kuralları dene
-        if not skill_results:
+        # Fallback SADECE LLM anlamlı bir cevap üretemediyse çalışır
+        # (AŞAMA 20: başarılı LLM cevabından sonra ikinci/çift cevap üretme bug'ı)
+        meaningful = clean and len(clean.strip()) >= 5 and "Asistan:" not in clean
+        if not skill_results and not meaningful:
             fallback = self._fallback_skill(text)
             if fallback:
                 print(f"🔄 Fallback skill: {fallback[:100]}")
                 clean2, skill_results2 = self.skills.handle_text(fallback)
                 if skill_results2:
-                    # LLM cevabını fallback ile birleştir
-                    if clean and len(clean) > 5 and "Asistan:" not in clean:
-                        clean = clean
-                    else:
-                        clean = clean2
+                    clean = clean2
                     skill_results = skill_results2
 
-        # skill sonuçlarını cevaba ekle
+        # skill sonuçlarını cevaba ekle (tek final response garantisi)
         final = clean
         if skill_results:
             # eğer clean boşsa sadece skill sonucu göster

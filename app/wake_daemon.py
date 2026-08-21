@@ -4,9 +4,25 @@ Masaüstündeyken "hey elisha" / "hey elişa" deyince ELİŞA'yı uyandırır.
 Çalıştır: python3 app/wake_daemon.py  (arka planda)
 Durdur: pkill -f wake_daemon
 """
-import sys, time, subprocess
+import sys, time, subprocess, os, atexit
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+LOCK_FILE = Path("/tmp/elisha_wake_daemon.pid")
+
+def acquire_lock() -> bool:
+    """Tek authority: aynı anda yalnızca bir wake daemon çalışabilir."""
+    if LOCK_FILE.exists():
+        try:
+            pid = int(LOCK_FILE.read_text().strip())
+            os.kill(pid, 0)
+            print(f"⚠️ Wake daemon zaten çalışıyor (PID {pid}). Bu süreç çıkıyor.")
+            return False
+        except (ValueError, ProcessLookupError, PermissionError):
+            pass
+    LOCK_FILE.write_text(str(os.getpid()))
+    atexit.register(lambda: LOCK_FILE.unlink(missing_ok=True))
+    return True
 
 import numpy as np
 
@@ -126,4 +142,6 @@ def main():
             time.sleep(0.8)
 
 if __name__ == "__main__":
+    if not acquire_lock():
+        sys.exit(0)
     main()
