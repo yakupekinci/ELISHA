@@ -31,9 +31,15 @@ function addBubble(text, who){
   chat.appendChild(b);
   chat.scrollTop = chat.scrollHeight;
   updateCnt();
+  return span;
 }
 function addSys(t){
   const b=document.createElement('div'); b.className='bubble sys'; b.textContent=t; chat.appendChild(b); chat.scrollTop=chat.scrollHeight; updateCnt();
+}
+let agentStatusEl = null;
+function setAgentStatus(t){
+  statusText.textContent = t;
+  hint.textContent = t;
 }
 function updateCnt(){
   const n = chat.querySelectorAll('.bubble').length;
@@ -65,17 +71,59 @@ async function sendText(text){
   input.value='';
   hint.textContent='ELİŞA düşünüyor...';
   setOrb('thinking');
+  const span = addBubble('', 'bot');
+  let full = '';
   try{
-    const r = await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({text})});
-    if(!r.ok) throw new Error('server '+r.status);
-    const j = await r.json();
-    addBubble(j.reply || 'Bir şey diyemedim', 'bot');
+    const r = await fetch('/api/chat_stream', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({text})});
+    if(!r.ok || !r.body) throw new Error('server '+r.status);
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let sbuf = '';
+    while(true){
+      const {done, value} = await reader.read();
+      if(done) break;
+      sbuf += dec.decode(value, {stream:true});
+      let idx;
+      while((idx = sbuf.indexOf('\n\n')) >= 0){
+        const raw = sbuf.slice(0, idx).trim(); sbuf = sbuf.slice(idx+2);
+        if(!raw.startsWith('data: ')) continue;
+        let ev; try{ ev = JSON.parse(raw.slice(6)); }catch{ continue; }
+        if(ev.type==='status'){
+          setAgentStatus(ev.text);
+          span.className = 'agent-status';
+          span.textContent = ev.text;
+        } else if(ev.type==='token'){
+          full += ev.text;
+          span.className = '';
+          span.parentElement.classList.add('bot');
+          span.textContent = full;
+          chat.scrollTop = chat.scrollHeight;
+        } else if(ev.type==='done'){
+          full = ev.reply || full;
+          span.textContent = full;
+        } else if(ev.type==='error'){
+          full = full || ('Hata: ' + ev.error);
+          span.textContent = full;
+        }
+      }
+    }
+    if(!full){ span.textContent = 'Bir şey diyemedim'; }
+    setAgentStatus('Hazır');
     hint.textContent='Hazır';
     setOrb(wakeOn?'':'');
-    if(ttsToggle.checked) speak(j.reply || '');
+    if(ttsToggle.checked && full && !full.startsWith('Hata:')) speak(full);
   }catch(e){
-    addSys('Bağlantı hatası: '+e.message+' — server ayakta mı?');
-    hint.textContent='Hata'; setOrb('');
+    // SSE yoksa eski yola düş
+    try{
+      const r2 = await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({text})});
+      const j = await r2.json();
+      span.textContent = j.reply || 'Bir şey diyemedim';
+      setAgentStatus('Hazır'); hint.textContent='Hazır'; setOrb(wakeOn?'':'');
+      if(ttsToggle.checked) speak(j.reply || '');
+    }catch(e2){
+      addSys('Bağlantı hatası: '+e.message+' — server ayakta mı?');
+      hint.textContent='Hata'; setOrb('');
+    }
   }
 }
 

@@ -2,6 +2,7 @@ import re
 from typing import Optional
 
 from .tools.registry import ToolRegistry
+from .security import NeedConfirmation, PermissionManager
 
 
 class FastPath:
@@ -10,12 +11,30 @@ class FastPath:
     Küçük lokal modellerde (qwen2.5:1.5b) native tool calling güvenilir değil.
     Bu yüzden net komutlar doğrudan araçlara bağlanır: hızlı (<0.1s), %100 güvenilir,
     Ollama kapalıyken bile çalışır. Karmaşık/çok adımlı istekler agent loop'a düşer.
+
+    GÜVENLİK: HIGH/CRITICAL riskli araçlar (ör. delete_file) PermissionManager'dan
+    geçer — onay istenmezse NeedConfirmation fırlatır, orchestrator onay akışına alır.
     """
 
-    def __init__(self, config: dict, registry: ToolRegistry, memory_store=None):
+    def __init__(self, config: dict, registry: ToolRegistry, memory_store=None,
+                 on_status=None, permissions: PermissionManager = None):
         self.config = config
         self.registry = registry
         self.memory = memory_store
+        self.on_status = on_status or (lambda s: None)
+        self.permissions = permissions
+
+    def _run(self, tool: str, args: dict, label: str = ""):
+        try:
+            self.on_status(label or f"⚙️ {tool} çalıştırıyorum...")
+        except Exception:
+            pass
+        if self.permissions is not None and \
+           self.permissions.needs_confirmation(self.registry, tool):
+            question = self.permissions.build_question(self.registry, tool, args)
+            self.permissions.request(tool, args, question)  # pending'e kaydet!
+            raise NeedConfirmation(tool, args, question)
+        return self.registry.execute(tool, args)
 
     def try_route(self, text: str) -> Optional[str]:
         t = text.lower().strip()
@@ -32,6 +51,19 @@ class FastPath:
         if re.search(r"\bunut\b", t):
             return self._forget(text)
 
+        # --- dosya silme (HIGH risk -> _run onay sistemine düşürür) ---
+        if re.search(r"\b(sil|kaldır|kaldir|siliver)\b", t):
+            m = re.search(
+                r"([\w\-À-ÿ ]*[\w\-À-ÿ]+\.(?:txt|md|pdf|docx?|xlsx?|pptx?|csv|png|jpe?g|gif|heic|mp3|mp4|mov|zip))",
+                text, re.I)
+            if m:
+                fname = m.group(1).strip()
+                fname = re.sub(r"^(masaustundeki|masaustunde|masaustu|desktop|indirilenlerdeki|"
+                               r"indirilenlerde|indirilenler|belgelerdeki|belgelerde|belgeler)\s+",
+                               "", fname, flags=re.I).strip()
+                r = self._run("delete_file", {"path": fname}, f"🗑️ {fname} siliniyor...")
+                return r.message if r.success else f"Silmedim: {r.error}"
+
         # --- müzik/şarkı (uygulama açmadan önce) ---
         if any(w in t for w in ["çal ", " çal", "şarkı", "sarki", "müzik", "muzik"]):
             if not any(a in t for a in ["spotify", "chrome", "safari", "ses "]):
@@ -45,7 +77,7 @@ class FastPath:
                      "x.com": "X", "instagram": "Instagram", "netflix": "Netflix",
                      "hürriyet": "Hürriyet", "milliyet": "Milliyet"}
             name = names.get(m.group(1), site)
-            r = self.registry.execute("open_url", {"url": f"{site}.com", "name": name})
+            r = self._run("open_url", {"url": f"{site}.com", "name": name}, f"🌐 {name} açıyorum...")
             return f"{name} açılıyor." if r.success else f"Siteyi açamadım: {r.error}"
 
         # --- uygulama aç / kapat ---
@@ -55,40 +87,40 @@ class FastPath:
             aliases = {"notlar": "notes", "hesap makinesi": "calculator",
                        "postacı": "mail", "code": "vscode"}
             app = aliases.get(app, app or "finder")
-            r = self.registry.execute("open_application", {"app": app})
+            r = self._run("open_application", {"app": app}, f"🚀 {app} açıyorum...")
             return r.message if r.success else f"Açamadım: {r.error}"
 
         m_close = re.search(r"\b(chrome|safari|firefox|vscode|code|finder|terminal|spotify|notes|calculator|mail)\b.{0,10}\b(kapat|kessan|kapatır)", t)
         if m_close or re.search(r"\b(\w+)\b.{0,5}uygulamasını kapat", t):
             app = m_close.group(1) if m_close else re.search(r"\b(\w+)\b.{0,5}uygulamasını kapat", t).group(1)
-            r = self.registry.execute("close_application", {"app": app})
+            r = self._run("close_application", {"app": app}, f"🔒 {app} kapatıyorum...")
             return r.message if r.success else f"Kapatamadım: {r.error}"
 
         # --- ses seviyesi ---
         if re.search(r"ses(i)?\s*(biraz\s*)?(aç|yükselt|arttır|yukarı)", t):
-            r = self.registry.execute("set_volume", {"action": "up"})
+            r = self._run("set_volume", {"action": "up"}, "🔊 Sesi yükseltiyorum...")
             return "Sesi yükselttim." if r.success else "Sesi değiştiremedim."
         if re.search(r"ses(i)?\s*(biraz\s*)?(kıs|azalt|aşağı|düşür)", t) or "sesi kıs" in t:
-            r = self.registry.execute("set_volume", {"action": "down"})
+            r = self._run("set_volume", {"action": "down"}, "🔉 Sesi kısuyorum...")
             return "Sesi kıstım." if r.success else "Sesi değiştiremedim."
         if "sessize al" in t or "sessiz mod" in t or t.strip() == "sessiz":
-            r = self.registry.execute("set_volume", {"action": "mute"})
+            r = self._run("set_volume", {"action": "mute"}, "🔇 Sessize alıyorum...")
             return "Sessize aldım." if r.success else "Sessiz alamadım."
         if "sesi geri aç" in t or "sesi geri getir" in t:
-            r = self.registry.execute("set_volume", {"action": "unmute"})
+            r = self._run("set_volume", {"action": "unmute"}, "🔊 Sesi geri açıyorum...")
             return "Sesi geri açtım." if r.success else "Yapamadım."
 
         # --- ekran görüntüsü ---
         if "ekran görüntüsü" in t or "ekran resmi" in t or "screenshot" in t:
-            r = self.registry.execute("take_screenshot", {})
+            r = self._run("take_screenshot", {}, "📸 Ekran görüntüsü alıyorum...")
             return r.message if r.success else f"Ekran görüntüsü alamadım: {r.error}"
 
         # --- saat / tarih ---
         if re.search(r"\bsaat(ki|ı)?\b.{0,12}\b(kaç|kac|söyle|öğren)\b|saat kaç", t) and "zaman" not in t:
-            r = self.registry.execute("get_time", {})
+            r = self._run("get_time", {}, "🕐 Saate bakıyorum...")
             return r.message if r.success else "Saati öğrenemedim."
         if re.search(r"(bugün|tarih|günlerden|hangi gün|ayın kaç[iı]?|ne gün)", t):
-            r = self.registry.execute("get_date", {})
+            r = self._run("get_date", {}, "📅 Tarihe bakıyorum...")
             return r.message if r.success else "Tarihi öğrenemedim."
 
         # --- dosya listeleme ---
@@ -99,8 +131,21 @@ class FastPath:
                 p = "~/Downloads"
             elif any(w in t for w in ["belgeler", "documents", "doküman"]):
                 p = "~/Documents"
-            r = self.registry.execute("list_files", {"path": p})
+            r = self._run("list_files", {"path": p}, "📁 Dosyaları listeliyorum...")
             return r.message if r.success else f"Listeleyemedim: {r.error}"
+
+        # --- web arama (en sonda: site/müzik/uygulama kurallarına çarpmasın) ---
+        if any(w in t for w in ["hava durumu", "havadurumu", "hava nasıl", "haber",
+                                "nedir", "kimdir", "kaç para", "döviz", "borsa"]) or \
+           ("ara" in t and len(t.split()) <= 7 and "şarkı" not in t):
+            q = re.sub(r"\b(elişa|eleşa|elisha|hey)\b", "", text, flags=re.I).strip(" ,.")
+            q = re.sub(r"^\s*(internette|google'da|googleda|webde)\s+", "", q, flags=re.I)
+            q = re.sub(r"^\s*ara\s+", "", q, flags=re.I)
+            q = re.sub(r"\s*ara(r)?( m[ıi]sın)?\s*$", "", q, flags=re.I).strip()
+            if not q:
+                q = text
+            r = self._run("web_search", {"query": q}, "🔍 İnternette arıyorum...")
+            return r.message if r.success else f"Aramayı yapamadım: {r.error}"
 
         return None
 
@@ -121,7 +166,7 @@ class FastPath:
         content = "ELİŞA tarafından oluşturuldu"
         if m_content and len(m_content.group(1).strip()) > 2:
             content = m_content.group(1).strip()[:200]
-        r = self.registry.execute("create_file", {"path": path, "content": content})
+        r = self._run("create_file", {"path": path, "content": content}, "📝 Dosya oluşturuyorum...")
         return r.message if r.success else f"Dosya oluşturamadım: {r.error}"
 
     def _music(self, original: str) -> str:
@@ -129,7 +174,7 @@ class FastPath:
                    "", original, flags=re.I).strip(" ,.?!")
         if len(q) < 3:
             q = "türkçe pop"
-        r = self.registry.execute("play_music", {"query": q})
+        r = self._run("play_music", {"query": q}, "🎵 Müziği başlatıyorum...")
         return r.message if r.success else f"Müziği başlatamadım: {r.error}"
 
     # ---------- hafıza ----------

@@ -76,3 +76,11 @@ a{color:inherit}
 .ghost.wake.active{background:linear-gradient(135deg,#ff2e97,#a855f7);border-color:transparent;color:white;box-shadow:0 6px 18px rgba(255,46,151,.35)}
 .hint{margin-left:auto;font-size:11px;color:#9aa0b8}
 .tts-toggle{font-size:11px;color:#9aa0b8;display:flex;gap:6px;align-items:center}
+
+/* agent durum göstergesi (AŞAMA 24) */
+.bubble.bot span.agent-status{
+  display:inline-block;
+  font-style:italic;
+  opacity:.75;
+  font-size:.92em;
+}

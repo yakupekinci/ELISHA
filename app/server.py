@@ -2,7 +2,7 @@
 ELİŞA Web Server — Threading + cache + local STT
 Çalıştır: python3 app/server.py  -> http://localhost:8765
 """
-import json, base64, tempfile, threading, time
+import json, base64, tempfile, threading, time, queue
 from pathlib import Path
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse
@@ -13,6 +13,10 @@ from elisha.orchestrator import ElishaOrchestrator
 
 PORT = 8765
 WEB_DIR = Path(__file__).parent / "web"
+
+# Aktif SSE istemciler (agent durum yayını)
+_sse_clients = set()
+_sse_lock = threading.Lock()
 
 _bot = None
 _bot_lock = threading.Lock()
@@ -118,6 +122,16 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json(200, {"reply": reply, "text": text})
                 return
 
+            if parsed.path == "/api/chat_stream":
+                # SSE: status olayları + kademeli final cevap
+                data = json.loads(body) if body else {}
+                text = (data.get("text") or "").strip()
+                if not text:
+                    return self._json(400, {"error": "no text"})
+                bot = get_bot()
+                self._chat_stream_sse(bot, text)
+                return
+
             if parsed.path == "/api/tts":
                 data = json.loads(body) if body else {}
                 text = (data.get("text") or "").strip()[:500]
@@ -162,6 +176,61 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.wfile.write(json.dumps(obj).encode("utf-8"))
+
+    # ---------- SSE streaming chat ----------
+
+    def _sse_send(self, obj):
+        try:
+            self.wfile.write(f"data: {json.dumps(obj, ensure_ascii=False)}\n\n".encode("utf-8"))
+            self.wfile.flush()
+        except Exception:
+            pass
+
+    def _chat_stream_sse(self, bot, text):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+
+        q = queue.Queue()
+
+        def on_status(s):
+            q.put(("status", s))
+
+        def worker():
+            old_cb = getattr(bot, "status_callback", None)
+            bot.status_callback = on_status
+            try:
+                with _chat_lock:  # LLM seri çalışsın
+                    reply = bot.process_text(text)
+                q.put(("done", reply or ""))
+            except Exception as e:
+                q.put(("error", str(e)))
+            finally:
+                bot.status_callback = old_cb
+
+        threading.Thread(target=worker, daemon=True).start()
+
+        while True:
+            try:
+                kind, val = q.get(timeout=180)
+            except queue.Empty:
+                self._sse_send({"type": "error", "error": "zaman aşımı"})
+                break
+            if kind == "status":
+                self._sse_send({"type": "status", "text": val})
+            elif kind == "error":
+                self._sse_send({"type": "error", "error": val})
+                break
+            else:  # done -> cevabı kademeli gönder
+                words, buf = val.split(" "), ""
+                for w in words:
+                    buf += (w + " ")
+                    self._sse_send({"type": "token", "text": w + " "})
+                    time.sleep(0.012)
+                self._sse_send({"type": "done", "reply": val})
+                break
 
 def main():
     WEB_DIR.mkdir(parents=True, exist_ok=True)

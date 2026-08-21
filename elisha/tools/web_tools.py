@@ -26,7 +26,10 @@ class WebSearchTool(Tool):
             except ImportError:
                 from duckduckgo_search import DDGS
             with DDGS() as ddgs:
-                results = list(ddgs.text(query, max_results=5))
+                results = list(ddgs.text(query, region="tr-tr", max_results=5))
+            if not results:  # Türkçe bölge boşsa global dene
+                with DDGS() as ddgs:
+                    results = list(ddgs.text(query, max_results=5))
             if not results:
                 return ToolResult(False, self.name, error=f"'{query}' için sonuç bulunamadı.")
             items = []

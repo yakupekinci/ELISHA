@@ -30,9 +30,11 @@ class ElishaOrchestrator:
         from .tools import build_default_registry
         registry = build_default_registry(self.config, self.memory)
         self.registry = registry
-        self.fastpath = FastPath(self.config, registry, self.memory)
         self._need_confirm_cls = NeedConfirmation
         self.permissions = PermissionManager(self.config)
+        self.fastpath = FastPath(self.config, registry, self.memory,
+                                 on_status=self._emit_status,
+                                 permissions=self.permissions)
         agent_cfg = self.config.get("agent", {}) or {}
         if agent_cfg.get("enabled", True) and self.llm.provider == "ollama":
             try:
@@ -116,18 +118,24 @@ class ElishaOrchestrator:
 
         # V2.1: deterministik hızlı yol — yaygın komutlar LLM'siz anında çalışır
         if self.fastpath is not None:
+            fast = None
             try:
                 fast = self.fastpath.try_route(text)
-                if fast:
-                    print(f"⚡ Hızlı yol: {fast[:120]}")
-                    self.llm.history.append({"role": "user", "content": text})
-                    self.llm.history.append({"role": "assistant", "content": fast})
-                    if len(self.llm.history) > 10:
-                        self.llm.history = self.llm.history[-10:]
-                    print(f"🤖 ELİŞA: {fast}")
-                    return fast
+            except self._need_confirm_cls as nc:
+                # hızlı yol HIGH/CRITICAL araca çarptı -> onay akışı
+                print(f"🔐 Onay istendi (hızlı yol): {nc.message}")
+                self._remember_turn(text, nc.message)
+                return nc.message
             except Exception as e:
                 print(f"⚠️ Hızlı yol hatası ({e}), agent'a düşülüyor")
+            if fast:
+                print(f"⚡ Hızlı yol: {fast[:120]}")
+                self.llm.history.append({"role": "user", "content": text})
+                self.llm.history.append({"role": "assistant", "content": fast})
+                if len(self.llm.history) > 10:
+                    self.llm.history = self.llm.history[-10:]
+                print(f"🤖 ELİŞA: {fast}")
+                return fast
 
         # V2: gerçek agent döngüsü (native tool calling)
         if self.agent is not None:
