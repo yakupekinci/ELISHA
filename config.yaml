@@ -33,7 +33,8 @@ tts:
 
 llm:
   provider: auto  # auto | ollama | mock
-  model: qwen2.5:1.5b
+  model: qwen2.5:7b
+  fallback_model: qwen2.5:1.5b
   # Alternatifler: qwen2.5:1.5b (düşük RAM), qwen2.5:3b, llama3.2:3b, gemma2:2b
   host: http://localhost:11434
   system_prompt: |

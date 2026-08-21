@@ -6,7 +6,8 @@ class LLMEngine:
     def __init__(self, config: dict):
         self.config = config
         self.provider = (config.get("llm", {}).get("provider") or "auto").lower()
-        self.model = config.get("llm", {}).get("model", "qwen2.5:3b")
+        self.model = config.get("llm", {}).get("model", "qwen2.5:7b")
+        self.fallback_model = config.get("llm", {}).get("fallback_model", "qwen2.5:1.5b")
         self.host = config.get("llm", {}).get("host", "http://localhost:11434")
         self.system_prompt = config.get("llm", {}).get("system_prompt", PERSONA_TR) + "\n" + SKILL_PROMPT_TR
         self.temperature = config.get("llm", {}).get("temperature", 0.7)
@@ -16,10 +17,9 @@ class LLMEngine:
 
     def _init_engine(self):
         if self.provider == "auto":
-            # Ollama var mı test et
             if self._ollama_available():
                 self.provider = "ollama"
-                print(f"✅ LLM: Ollama ({self.model}) hazır")
+                self._select_best_model()
             else:
                 self.provider = "mock"
                 print("⚠️ LLM: mock mod (Ollama yok, kural tabanlı cevap)")
@@ -28,7 +28,25 @@ class LLMEngine:
                 print("⚠️ Ollama bağlanamadı, mock moda geçiliyor")
                 self.provider = "mock"
             else:
-                print(f"✅ LLM: Ollama ({self.model}) hazır")
+                self._select_best_model()
+
+    def _select_best_model(self):
+        """En iyi mevcut modeli seç: büyük varsa onu, yoksa fallback."""
+        try:
+            r = requests.get(f"{self.host}/api/tags", timeout=3)
+            available = [m["name"] for m in r.json().get("models", [])]
+            if self.model in available:
+                print(f"✅ LLM: Ollama ({self.model}) — akıllı mod")
+            elif self.fallback_model in available:
+                print(f"⚠️ LLM: {self.model} yok, fallback → {self.fallback_model}")
+                self.model = self.fallback_model
+            elif available:
+                self.model = available[0]
+                print(f"⚠️ LLM: tercih edilen modeller yok, {self.model} kullanılıyor")
+            else:
+                print(f"⚠️ LLM: hiç model yok! 'ollama pull {self.model}' çalıştır")
+        except Exception:
+            print(f"✅ LLM: Ollama ({self.model}) hazır (model listesi alınamadı)")
 
     def _ollama_available(self) -> bool:
         try:

@@ -1,303 +1,867 @@
-<!doctype html>
-<html lang="tr">
+<!DOCTYPE html>
+<html lang="en">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>ELİŞA</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;overflow:hidden;background:transparent;font-family:Outfit,system-ui,-apple-system,sans-serif;color:#f0f0ff}
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ELISHA — Desktop Overlay</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: oklch(0.12 0.012 275 / 0.85);
+      --bg-solid: #0a0a0f;
+      --surface: oklch(0.22 0.02 275 / 0.45);
+      --surface-strong: oklch(0.28 0.025 275 / 0.55);
+      --fg: oklch(0.96 0.01 275);
+      --muted: oklch(0.72 0.02 275);
+      --border: oklch(0.85 0.03 290 / 0.14);
+      --accent: #7c3aed;
+      --accent-soft: #a78bfa;
+      --hot: #ff2e97;
+      --status: #06b6d4;
+      --radius-outer: 24px;
+      --radius-inner: 14px;
+      --font: "Outfit", system-ui, -apple-system, "SF Pro Text", sans-serif;
+      --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      --panel-w: 380px;
+      --panel-h: 560px;
+    }
 
-/* Ana konteyner — şeffaf arka plan üstünde yüzen panel */
-.container{
-  width:100%;height:100%;
-  display:flex;flex-direction:column;
-  padding:12px;
-  -webkit-app-region:drag;
-}
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-/* Glass panel */
-.panel{
-  flex:1;display:flex;flex-direction:column;
-  background:rgba(10,10,20,.82);
-  backdrop-filter:blur(40px) saturate(1.4);
-  -webkit-backdrop-filter:blur(40px) saturate(1.4);
-  border:1px solid rgba(124,58,237,.25);
-  border-radius:24px;
-  box-shadow:0 20px 60px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.05), inset 0 1px 0 rgba(255,255,255,.08);
-  overflow:hidden;
-  -webkit-app-region:no-drag;
-}
+    html, body {
+      height: 100%;
+      font-family: var(--font);
+      color: var(--fg);
+      background: #050508;
+      overflow: hidden;
+    }
 
-/* Üst bar */
-.topbar{
-  height:44px;display:flex;align-items:center;justify-content:space-between;
-  padding:0 16px;
-  border-bottom:1px solid rgba(255,255,255,.06);
-  -webkit-app-region:drag;
-}
-.brand{display:flex;align-items:center;gap:8px}
-.brand-dot{width:8px;height:8px;border-radius:50%;background:#a78bfa;box-shadow:0 0 8px #a78bfa;animation:pulse 2s infinite}
-.brand-name{font-weight:700;font-size:13px;letter-spacing:.03em}
-.status-pill{font-size:10px;padding:4px 10px;border-radius:99px;background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.2);color:#c4b5fd}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+    /* Desktop stage — wallpaper so the glass panel reads as an overlay */
+    .desktop {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(ellipse 80% 60% at 20% 10%, oklch(0.35 0.08 293 / 0.35), transparent 55%),
+        radial-gradient(ellipse 70% 50% at 85% 80%, oklch(0.3 0.06 200 / 0.25), transparent 50%),
+        linear-gradient(165deg, #12121a 0%, #0a0a10 45%, #08080c 100%);
+    }
 
-/* Orb bölgesi */
-.orb-section{
-  padding:20px 0;display:flex;flex-direction:column;align-items:center;
-}
-.orb{
-  width:80px;height:80px;border-radius:50%;
-  background:radial-gradient(circle at 30% 25%,#fff 0%,#ffd6e8 10%,#ff2e97 25%,#7c3aed 55%,#1a0a2e 80%);
-  box-shadow:0 0 0 8px rgba(124,58,237,.1), 0 0 30px rgba(255,46,151,.3);
-  animation:breathe 3s ease-in-out infinite;
-  transition:all .3s;
-}
-.orb.listening{
-  animation:breathe .8s ease-in-out infinite;
-  box-shadow:0 0 0 12px rgba(255,46,151,.2), 0 0 50px rgba(255,46,151,.5);
-}
-.orb.speaking{
-  animation:speak-pulse 1s ease-in-out infinite;
-  box-shadow:0 0 0 10px rgba(6,182,212,.15), 0 0 40px rgba(6,182,212,.4);
-  background:radial-gradient(circle at 30% 25%,#fff 0%,#d6f5ff 10%,#06b6d4 25%,#7c3aed 55%,#1a0a2e 80%);
-}
-.orb.thinking{
-  animation:think-spin 2s linear infinite;
-}
-@keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
-@keyframes speak-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
-@keyframes think-spin{0%{box-shadow:0 0 0 8px rgba(124,58,237,.2), 0 0 30px rgba(124,58,237,.3)}50%{box-shadow:0 0 0 14px rgba(124,58,237,.3), 0 0 50px rgba(124,58,237,.5)}100%{box-shadow:0 0 0 8px rgba(124,58,237,.2), 0 0 30px rgba(124,58,237,.3)}}
+    .desktop::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(oklch(1 0 0 / 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, oklch(1 0 0 / 0.03) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, black, transparent);
+      pointer-events: none;
+    }
 
-.orb-label{margin-top:10px;font-size:11px;color:#9aa0b8;font-weight:400}
-.agent-status-text{margin-top:4px;font-size:12px;color:#c4b5fd;font-weight:600;min-height:16px}
+    .wallpaper-hint {
+      position: absolute;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 12px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: oklch(0.55 0.02 275);
+      pointer-events: none;
+    }
 
-/* Chat bölgesi */
-.messages{
-  flex:1;overflow-y:auto;padding:12px 14px;
-  display:flex;flex-direction:column;gap:8px;
-  scroll-behavior:smooth;
-}
-.messages::-webkit-scrollbar{width:4px}
-.messages::-webkit-scrollbar-thumb{background:rgba(124,58,237,.3);border-radius:2px}
+    /* Floating panel */
+    .panel {
+      position: relative;
+      z-index: 2;
+      width: var(--panel-w);
+      height: var(--panel-h);
+      display: flex;
+      flex-direction: column;
+      border-radius: var(--radius-outer);
+      background: color-mix(in srgb, var(--bg-solid) 85%, transparent);
+      backdrop-filter: blur(40px) saturate(1.35);
+      -webkit-backdrop-filter: blur(40px) saturate(1.35);
+      border: 1px solid var(--border);
+      box-shadow:
+        0 0 0 1px oklch(1 0 0 / 0.04) inset,
+        0 24px 64px oklch(0 0 0 / 0.55),
+        0 0 80px oklch(0.55 0.25 293 / 0.12);
+      overflow: hidden;
+    }
 
-.msg{max-width:85%;padding:10px 14px;border-radius:14px;font-size:13px;line-height:1.4;animation:pop .2s ease}
-.msg.user{align-self:flex-end;background:linear-gradient(135deg,#7c3aed,#a78bfa);color:#fff;border-bottom-right-radius:4px}
-.msg.bot{align-self:flex-start;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.08);border-bottom-left-radius:4px}
-.msg.sys{align-self:center;font-size:11px;color:#6b7280;padding:4px 10px}
-@keyframes pop{from{transform:translateY(4px);opacity:0}to{transform:none;opacity:1}}
+    /* Top bar */
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 16px 10px;
+      flex-shrink: 0;
+    }
 
-/* Input alanı */
-.input-area{
-  padding:10px 12px;
-  border-top:1px solid rgba(255,255,255,.06);
-  display:flex;gap:8px;align-items:center;
-}
-.input-area input{
-  flex:1;height:36px;border-radius:12px;
-  border:1px solid rgba(124,58,237,.2);
-  background:rgba(255,255,255,.05);
-  color:#fff;padding:0 12px;font-size:13px;
-  outline:none;transition:all .2s;
-}
-.input-area input:focus{border-color:rgba(124,58,237,.5);box-shadow:0 0 0 3px rgba(124,58,237,.1)}
-.input-area input::placeholder{color:#6b7280}
+    .brand-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), var(--accent-soft));
+      box-shadow: 0 0 12px oklch(0.55 0.25 293 / 0.7);
+      flex-shrink: 0;
+    }
 
-.btn-mic{
-  width:36px;height:36px;border-radius:50%;border:none;
-  background:linear-gradient(135deg,#ff2e97,#7c3aed);
-  color:#fff;font-size:16px;cursor:pointer;
-  display:grid;place-items:center;
-  transition:transform .15s;
-}
-.btn-mic:hover{transform:scale(1.08)}
-.btn-mic:active{transform:scale(.95)}
-.btn-mic.active{animation:mic-pulse 1s infinite;box-shadow:0 0 20px rgba(255,46,151,.5)}
-@keyframes mic-pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,46,151,.4)}50%{box-shadow:0 0 0 8px rgba(255,46,151,0)}}
+    .brand-name {
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      line-height: 1;
+    }
 
-.btn-send{
-  width:36px;height:36px;border-radius:12px;border:none;
-  background:rgba(124,58,237,.2);color:#a78bfa;
-  font-size:14px;cursor:pointer;
-  display:grid;place-items:center;transition:all .15s;
-}
-.btn-send:hover{background:rgba(124,58,237,.4);transform:translateY(-1px)}
+    .status-pills {
+      margin-left: auto;
+      display: flex;
+      gap: 4px;
+    }
 
-/* Alt bilgi */
-.footer{
-  padding:6px 14px 8px;display:flex;justify-content:space-between;align-items:center;
-  font-size:10px;color:#4b5563;
-}
-.footer label{display:flex;align-items:center;gap:4px;cursor:pointer}
-.footer input[type=checkbox]{width:12px;height:12px;accent-color:#7c3aed}
-</style>
-</head>
-<body>
-<div class="container">
-  <div class="panel">
-    <div class="topbar">
-      <div class="brand">
-        <div class="brand-dot"></div>
-        <span class="brand-name">ELİŞA</span>
-      </div>
-      <div class="status-pill" id="statusPill">bağlanıyor...</div>
-    </div>
+    .pill {
+      font-family: var(--mono);
+      font-size: 9px;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 5px 7px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--muted);
+      line-height: 1;
+      transition: color 0.2s, border-color 0.2s, box-shadow 0.2s, background 0.2s;
+    }
 
-    <div class="orb-section">
-      <div class="orb" id="orb"></div>
-      <div class="orb-label" id="orbLabel">Hazır</div>
-      <div class="agent-status-text" id="agentStatus"></div>
-    </div>
+    .pill.on {
+      color: var(--fg);
+      border-color: oklch(0.7 0.12 200 / 0.45);
+      background: oklch(0.4 0.08 200 / 0.25);
+      box-shadow: 0 0 10px oklch(0.7 0.14 200 / 0.35);
+    }
 
-    <div class="messages" id="messages"></div>
+    .pill.accent-on {
+      color: var(--fg);
+      border-color: oklch(0.65 0.2 293 / 0.5);
+      background: oklch(0.4 0.12 293 / 0.3);
+      box-shadow: 0 0 10px oklch(0.55 0.25 293 / 0.4);
+    }
 
-    <div class="input-area">
-      <input type="text" id="input" placeholder="Yaz veya konuş..." autocomplete="off"/>
-      <button class="btn-mic" id="btnMic">🎙️</button>
-      <button class="btn-send" id="btnSend">↑</button>
-    </div>
+    /* Orb */
+    .orb-section {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 8px 16px 4px;
+      flex-shrink: 0;
+      gap: 12px;
+    }
 
-    <div class="footer">
-      <span id="hint">Hazır</span>
-      <label><input type="checkbox" id="ttsToggle" checked/> sesli</label>
-    </div>
-  </div>
-</div>
+    .orb-wrap {
+      position: relative;
+      width: 80px;
+      height: 80px;
+    }
 
-<script>
-const messages = document.getElementById('messages');
-const input = document.getElementById('input');
-const btnSend = document.getElementById('btnSend');
-const btnMic = document.getElementById('btnMic');
-const orb = document.getElementById('orb');
-const orbLabel = document.getElementById('orbLabel');
-const agentStatus = document.getElementById('agentStatus');
-const statusPill = document.getElementById('statusPill');
-const hint = document.getElementById('hint');
-const ttsToggle = document.getElementById('ttsToggle');
+    .orb-ring {
+      position: absolute;
+      inset: -8px;
+      border-radius: 50%;
+      border: 1px solid oklch(0.7 0.15 293 / 0.25);
+      opacity: 0;
+      pointer-events: none;
+    }
 
-function addMsg(text, who){
-  const d = document.createElement('div');
-  d.className = 'msg ' + who;
-  d.textContent = text;
-  messages.appendChild(d);
-  messages.scrollTop = messages.scrollHeight;
-  return d;
-}
+    .orb {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      position: relative;
+      background:
+        radial-gradient(circle at 35% 30%, oklch(0.85 0.08 293), transparent 45%),
+        radial-gradient(circle at 65% 70%, var(--accent-soft), var(--accent) 60%, oklch(0.35 0.2 293));
+      box-shadow:
+        0 0 28px oklch(0.55 0.25 293 / 0.55),
+        0 0 56px oklch(0.55 0.25 293 / 0.25),
+        inset 0 0 20px oklch(1 0 0 / 0.15);
+      animation: orb-breathe 3.2s ease-in-out infinite;
+      transition: box-shadow 0.35s, background 0.35s;
+    }
 
-function setOrb(state){
-  orb.className = 'orb ' + (state || '');
-  if(state==='listening') orbLabel.textContent = 'Dinliyor...';
-  else if(state==='speaking') orbLabel.textContent = 'Konuşuyor...';
-  else if(state==='thinking') orbLabel.textContent = 'Düşünüyor...';
-  else orbLabel.textContent = 'Hazır';
-}
+    .orb::after {
+      content: "";
+      position: absolute;
+      inset: 18%;
+      border-radius: 50%;
+      background: radial-gradient(circle at 40% 35%, oklch(1 0 0 / 0.55), transparent 60%);
+      opacity: 0.7;
+    }
 
-function setStatus(t){
-  agentStatus.textContent = t || '';
-  hint.textContent = t || 'Hazır';
-}
+    .panel[data-mode="listening"] .orb {
+      animation: orb-listen 0.9s ease-in-out infinite;
+      background:
+        radial-gradient(circle at 35% 30%, oklch(0.9 0.1 340), transparent 45%),
+        radial-gradient(circle at 65% 70%, var(--hot), #c026a0 55%, var(--accent));
+      box-shadow:
+        0 0 32px oklch(0.65 0.28 350 / 0.7),
+        0 0 64px oklch(0.65 0.28 350 / 0.35),
+        inset 0 0 20px oklch(1 0 0 / 0.2);
+    }
 
-async function sendText(text){
-  if(!text.trim()) return;
-  addMsg(text, 'user');
-  input.value = '';
-  setOrb('thinking');
-  const el = addMsg('', 'bot');
-  let full = '';
-  try{
-    const r = await fetch('/api/chat_stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
-    if(!r.ok||!r.body) throw new Error(r.status);
-    const reader = r.body.getReader();
-    const dec = new TextDecoder();
-    let buf = '';
-    while(true){
-      const {done,value} = await reader.read();
-      if(done) break;
-      buf += dec.decode(value,{stream:true});
-      let idx;
-      while((idx=buf.indexOf('\n\n'))>=0){
-        const raw=buf.slice(0,idx).trim(); buf=buf.slice(idx+2);
-        if(!raw.startsWith('data: ')) continue;
-        let ev; try{ev=JSON.parse(raw.slice(6));}catch{continue;}
-        if(ev.type==='status'){setStatus(ev.text);}
-        else if(ev.type==='token'){full+=ev.text; el.textContent=full; messages.scrollTop=messages.scrollHeight;}
-        else if(ev.type==='done'){full=ev.reply||full; el.textContent=full;}
-        else if(ev.type==='error'){el.textContent='Hata: '+ev.error;}
+    .panel[data-mode="listening"] .orb-ring {
+      opacity: 1;
+      animation: ring-pulse 0.9s ease-out infinite;
+      border-color: oklch(0.7 0.25 350 / 0.55);
+    }
+
+    .panel[data-mode="speaking"] .orb {
+      animation: orb-speak 1.4s ease-in-out infinite;
+      background:
+        radial-gradient(circle at 35% 30%, oklch(0.9 0.08 200), transparent 45%),
+        radial-gradient(circle at 65% 70%, var(--status), #0891b2 55%, oklch(0.45 0.14 220));
+      box-shadow:
+        0 0 32px oklch(0.7 0.14 200 / 0.75),
+        0 0 64px oklch(0.7 0.14 200 / 0.35),
+        inset 0 0 20px oklch(1 0 0 / 0.2);
+    }
+
+    .panel[data-mode="speaking"] .orb-ring {
+      opacity: 1;
+      animation: ring-pulse 1.4s ease-out infinite;
+      border-color: oklch(0.75 0.14 200 / 0.5);
+    }
+
+    @keyframes orb-breathe {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.06); }
+    }
+
+    @keyframes orb-listen {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.12); }
+    }
+
+    @keyframes orb-speak {
+      0%, 100% { transform: scale(1); filter: brightness(1); }
+      50% { transform: scale(1.08); filter: brightness(1.15); }
+    }
+
+    @keyframes ring-pulse {
+      0% { transform: scale(0.92); opacity: 0.7; }
+      100% { transform: scale(1.35); opacity: 0; }
+    }
+
+    .agent-status {
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      color: var(--muted);
+      min-height: 20px;
+      text-align: center;
+      transition: color 0.25s, text-shadow 0.25s;
+    }
+
+    .agent-status.active {
+      color: var(--fg);
+      animation: status-glow 1.8s ease-in-out infinite;
+    }
+
+    @keyframes status-glow {
+      0%, 100% { text-shadow: 0 0 0 transparent; }
+      50% { text-shadow: 0 0 14px oklch(0.55 0.25 293 / 0.55); }
+    }
+
+    .panel[data-mode="speaking"] .agent-status.active {
+      animation-name: status-glow-cyan;
+    }
+
+    @keyframes status-glow-cyan {
+      0%, 100% { text-shadow: 0 0 0 transparent; }
+      50% { text-shadow: 0 0 14px oklch(0.7 0.14 200 / 0.6); }
+    }
+
+    /* Chat */
+    .chat {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 8px 14px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      scroll-behavior: smooth;
+    }
+
+    .chat::-webkit-scrollbar { width: 4px; }
+    .chat::-webkit-scrollbar-thumb {
+      background: oklch(0.7 0.05 293 / 0.35);
+      border-radius: 4px;
+    }
+
+    .msg {
+      max-width: 88%;
+      padding: 9px 12px;
+      font-size: 13px;
+      line-height: 1.5;
+      letter-spacing: 0;
+      animation: msg-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+      word-wrap: break-word;
+    }
+
+    @keyframes msg-in {
+      from {
+        opacity: 0;
+        transform: translateY(10px) scale(0.97);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
       }
     }
-    if(!full) el.textContent='...';
-    setOrb(''); setStatus('');
-    if(ttsToggle.checked && full) speak(full);
-  }catch(e){
-    try{
-      const r2=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
-      const j=await r2.json();
-      el.textContent=j.reply||'...';
-      if(ttsToggle.checked) speak(j.reply||'');
-    }catch{el.textContent='Bağlantı hatası';}
-    setOrb(''); setStatus('');
-  }
-}
 
-function speak(text){
-  const clean=(text||'').replace(/\[ACTION:[^\]]+\]/g,'').trim().slice(0,400);
-  if(!clean) return;
-  setOrb('speaking');
-  fetch('/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:clean})})
-    .then(r=>r.json()).then(j=>{
-      if(!j.audio){fallbackSpeak(clean);return;}
-      const bytes=Uint8Array.from(atob(j.audio),c=>c.charCodeAt(0));
-      const a=new Audio(URL.createObjectURL(new Blob([bytes],{type:'audio/wav'})));
-      a.onended=()=>setOrb('');
-      a.play().catch(()=>fallbackSpeak(clean));
-    }).catch(()=>fallbackSpeak(clean));
-}
-function fallbackSpeak(t){
-  if('speechSynthesis' in window){
-    const u=new SpeechSynthesisUtterance(t);
-    u.lang='tr-TR';u.rate=1;
-    u.onend=()=>setOrb('');
-    speechSynthesis.speak(u);
-  } else setOrb('');
-}
+    .msg.user {
+      align-self: flex-end;
+      border-radius: var(--radius-inner) var(--radius-inner) 4px var(--radius-inner);
+      background: linear-gradient(135deg, var(--accent), var(--accent-soft));
+      color: #fff;
+      box-shadow: 0 4px 16px oklch(0.55 0.25 293 / 0.35);
+    }
 
-btnSend.onclick=()=>sendText(input.value);
-input.addEventListener('keydown',e=>{if(e.key==='Enter')sendText(input.value);});
+    .msg.bot {
+      align-self: flex-start;
+      border-radius: var(--radius-inner) var(--radius-inner) var(--radius-inner) 4px;
+      background: var(--surface-strong);
+      border: 1px solid var(--border);
+      color: var(--fg);
+      backdrop-filter: blur(12px);
+    }
 
-// Mic toggle (basit)
-let micActive=false;
-btnMic.onclick=()=>{
-  micActive=!micActive;
-  btnMic.classList.toggle('active',micActive);
-  if(micActive){
-    setOrb('listening');
-    fetch('/api/wake',{method:'POST'}).then(r=>r.json()).then(j=>{
-      if(j.wake&&j.text){addMsg('(ses) '+j.text,'user');sendText(j.text);}
-      micActive=false;btnMic.classList.remove('active');setOrb('');
-    }).catch(()=>{micActive=false;btnMic.classList.remove('active');setOrb('');});
-  }
-};
+    .msg .meta {
+      display: block;
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 3px;
+      opacity: 0.75;
+    }
 
-// Status fetch
-async function fetchStatus(){
-  try{
-    const r=await fetch('/api/status');const j=await r.json();
-    statusPill.textContent=`${j.stt} • ${j.tts} • ${j.llm}`;
-  }catch{statusPill.textContent='bağlantı yok';}
-}
-fetchStatus(); setInterval(fetchStatus,10000);
+    .msg.user .meta { color: oklch(1 0 0 / 0.85); }
+    .msg.bot .meta { color: var(--muted); }
 
-// External wake (wake daemon'dan gelen)
-window.ELISHA_EXTERNAL_WAKE = function(reason){
-  setOrb('listening');
-  addMsg('(uyanıyor...)', 'sys');
-};
+    /* Input */
+    .input-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px 8px;
+      flex-shrink: 0;
+      border-top: 1px solid var(--border);
+      background: oklch(0.1 0.01 275 / 0.35);
+    }
 
-// Keep alive for auto-hide
-setInterval(()=>{try{pywebview.api.keep_alive();}catch{}},5000);
-</script>
+    .text-input {
+      flex: 1;
+      min-width: 0;
+      height: 44px;
+      padding: 0 14px;
+      border-radius: var(--radius-inner);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--fg);
+      font-family: var(--font);
+      font-size: 14px;
+      font-weight: 400;
+      letter-spacing: 0;
+      outline: none;
+      transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+    }
+
+    .text-input::placeholder { color: oklch(0.55 0.02 275); }
+
+    .text-input:hover {
+      background: oklch(0.26 0.025 275 / 0.55);
+      border-color: oklch(0.85 0.03 290 / 0.22);
+    }
+
+    .text-input:focus-visible {
+      border-color: oklch(0.65 0.2 293 / 0.65);
+      box-shadow: 0 0 0 3px oklch(0.55 0.25 293 / 0.28);
+      background: oklch(0.26 0.025 275 / 0.6);
+    }
+
+    .btn {
+      flex-shrink: 0;
+      width: 44px;
+      height: 44px;
+      border-radius: var(--radius-inner);
+      border: none;
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      font-family: var(--font);
+      transition: background 0.2s, box-shadow 0.2s, transform 0.15s, border-color 0.2s, color 0.2s;
+      position: relative;
+    }
+
+    .btn:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 3px oklch(0.55 0.25 293 / 0.4);
+    }
+
+    .btn:active { transform: scale(0.96); }
+
+    .btn-mic {
+      background: linear-gradient(135deg, var(--accent), var(--accent-soft));
+      color: #fff;
+      box-shadow: 0 4px 18px oklch(0.55 0.25 293 / 0.45);
+    }
+
+    .btn-mic:hover {
+      background: linear-gradient(135deg, oklch(0.5 0.26 293), oklch(0.72 0.16 293));
+      box-shadow: 0 6px 22px oklch(0.55 0.25 293 / 0.55);
+    }
+
+    .btn-mic.active {
+      background: linear-gradient(135deg, var(--hot), #e11d8a);
+      box-shadow: 0 0 24px oklch(0.65 0.28 350 / 0.65);
+    }
+
+    .btn-mic.active:hover {
+      background: linear-gradient(135deg, #e11d8a, var(--hot));
+    }
+
+    .btn-mic .mic-ring {
+      position: absolute;
+      inset: -4px;
+      border-radius: calc(var(--radius-inner) + 4px);
+      border: 2px solid oklch(0.7 0.25 350 / 0.7);
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .btn-mic.active .mic-ring {
+      animation: mic-ring 1.1s ease-out infinite;
+    }
+
+    @keyframes mic-ring {
+      0% { transform: scale(1); opacity: 0.8; }
+      100% { transform: scale(1.35); opacity: 0; }
+    }
+
+    .btn-send {
+      background: var(--surface-strong);
+      border: 1px solid var(--border);
+      color: var(--fg);
+    }
+
+    .btn-send:hover {
+      background: oklch(0.32 0.03 275 / 0.7);
+      border-color: oklch(0.85 0.03 290 / 0.28);
+      color: var(--fg);
+    }
+
+    .btn-send:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn svg {
+      width: 18px;
+      height: 18px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    /* Footer */
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 6px 16px 14px;
+      flex-shrink: 0;
+    }
+
+    .hint {
+      font-size: 11px;
+      letter-spacing: 0.02em;
+      color: var(--muted);
+      line-height: 1.4;
+      min-width: 0;
+    }
+
+    .hint strong {
+      font-weight: 500;
+      color: oklch(0.82 0.03 293);
+    }
+
+    .tts-toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 8px;
+      color: var(--muted);
+      font-family: var(--font);
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .tts-toggle:hover { color: var(--fg); }
+
+    .tts-toggle:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 3px oklch(0.55 0.25 293 / 0.35);
+    }
+
+    .tts-switch {
+      width: 32px;
+      height: 18px;
+      border-radius: 999px;
+      background: var(--surface-strong);
+      border: 1px solid var(--border);
+      position: relative;
+      transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .tts-switch::after {
+      content: "";
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--muted);
+      transition: transform 0.2s, background 0.2s;
+    }
+
+    .tts-toggle[aria-checked="true"] {
+      color: var(--fg);
+    }
+
+    .tts-toggle[aria-checked="true"] .tts-switch {
+      background: oklch(0.4 0.1 200 / 0.45);
+      border-color: oklch(0.7 0.14 200 / 0.5);
+      box-shadow: 0 0 10px oklch(0.7 0.14 200 / 0.35);
+    }
+
+    .tts-toggle[aria-checked="true"] .tts-switch::after {
+      transform: translateX(14px);
+      background: var(--status);
+    }
+
+    .tagline {
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      text-align: center;
+      margin-top: -2px;
+    }
+  </style>
+</head>
+<body>
+  <div class="desktop" data-od-id="desktop-stage">
+    <aside class="panel" data-od-id="elisha-panel" data-mode="idle" aria-label="ELISHA assistant">
+      <header class="topbar" data-od-id="top-bar">
+        <span class="brand-dot" aria-hidden="true"></span>
+        <h1 class="brand-name" data-od-id="brand-name">ELISHA</h1>
+        <div class="status-pills" data-od-id="status-pills" aria-label="Pipeline status">
+          <span class="pill on" data-od-id="pill-stt" title="Speech to text">STT</span>
+          <span class="pill on" data-od-id="pill-tts" title="Text to speech">TTS</span>
+          <span class="pill accent-on" data-od-id="pill-llm" title="Local language model">LLM</span>
+        </div>
+      </header>
+
+      <section class="orb-section" data-od-id="orb-section">
+        <div class="orb-wrap" data-od-id="orb-wrap">
+          <div class="orb-ring" aria-hidden="true"></div>
+          <div class="orb" data-od-id="voice-orb" role="img" aria-label="Voice orb, idle"></div>
+        </div>
+        <p class="tagline" data-od-id="tagline">Yerel. Akıllı. Güvenli.</p>
+        <p class="agent-status" data-od-id="agent-status" aria-live="polite">Ready when you are</p>
+      </section>
+
+      <div class="chat" data-od-id="chat-messages" role="log" aria-live="polite" aria-relevant="additions">
+        <div class="msg bot" data-od-id="msg-welcome">
+          <span class="meta">ELISHA</span>
+          Merhaba — I’m online on your Mac. Ask me to search, read files, or just talk.
+        </div>
+        <div class="msg user" data-od-id="msg-sample-user">
+          <span class="meta">You</span>
+          What’s on my calendar this afternoon?
+        </div>
+        <div class="msg bot" data-od-id="msg-sample-bot">
+          <span class="meta">ELISHA</span>
+          You have a design review at 15:00 and a call with Deniz at 16:30. Want a summary of the brief?
+        </div>
+      </div>
+
+      <form class="input-bar" data-od-id="input-bar" autocomplete="off">
+        <input
+          class="text-input"
+          type="text"
+          data-od-id="text-input"
+          placeholder="Ask ELISHA…"
+          aria-label="Message ELISHA"
+        />
+        <button type="button" class="btn btn-mic" data-od-id="mic-button" aria-label="Toggle microphone" aria-pressed="false">
+          <span class="mic-ring" aria-hidden="true"></span>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z" />
+            <path d="M19 11a7 7 0 0 1-14 0" />
+            <path d="M12 18v3" />
+          </svg>
+        </button>
+        <button type="submit" class="btn btn-send" data-od-id="send-button" aria-label="Send message">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 12h14" />
+            <path d="m13 6 6 6-6 6" />
+          </svg>
+        </button>
+      </form>
+
+      <footer class="footer" data-od-id="footer">
+        <p class="hint" data-od-id="hint-text">Hold <strong>⌥ Space</strong> anywhere · local only</p>
+        <button
+          type="button"
+          class="tts-toggle"
+          data-od-id="tts-toggle"
+          role="switch"
+          aria-checked="true"
+          aria-label="Text to speech"
+        >
+          <span>TTS</span>
+          <span class="tts-switch" aria-hidden="true"></span>
+        </button>
+      </footer>
+    </aside>
+
+    <p class="wallpaper-hint">macOS desktop · always on top</p>
+  </div>
+
+  <script>
+    (function () {
+      var panel = document.querySelector("[data-od-id='elisha-panel']");
+      var orb = document.querySelector("[data-od-id='voice-orb']");
+      var agentStatus = document.querySelector("[data-od-id='agent-status']");
+      var chat = document.querySelector("[data-od-id='chat-messages']");
+      var form = document.querySelector("[data-od-id='input-bar']");
+      var input = document.querySelector("[data-od-id='text-input']");
+      var micBtn = document.querySelector("[data-od-id='mic-button']");
+      var ttsToggle = document.querySelector("[data-od-id='tts-toggle']");
+      var pillStt = document.querySelector("[data-od-id='pill-stt']");
+      var pillTts = document.querySelector("[data-od-id='pill-tts']");
+
+      function setMode(mode) {
+        panel.setAttribute("data-mode", mode);
+        orb.setAttribute("aria-label", "Voice orb, " + mode);
+        if (mode === "listening") {
+          agentStatus.textContent = "Dinliyor...";
+          agentStatus.classList.add("active");
+          pillStt.classList.add("on");
+          micBtn.classList.add("active");
+        } else if (mode === "speaking") {
+          agentStatus.textContent = "Konuşuyor...";
+          agentStatus.classList.add("active");
+          pillTts.classList.toggle("on", ttsToggle.getAttribute("aria-checked") === "true");
+          micBtn.classList.remove("active");
+        } else if (mode === "thinking") {
+          agentStatus.textContent = "Düşünüyor...";
+          agentStatus.classList.add("active");
+          micBtn.classList.remove("active");
+        } else {
+          agentStatus.textContent = "Hazır";
+          agentStatus.classList.remove("active");
+          micBtn.classList.remove("active");
+        }
+      }
+
+      function appendMessage(role, text) {
+        var el = document.createElement("div");
+        el.className = "msg " + role;
+        var meta = document.createElement("span");
+        meta.className = "meta";
+        meta.textContent = role === "user" ? "Sen" : "ELISHA";
+        el.appendChild(meta);
+        var txt = document.createTextNode(text);
+        el.appendChild(txt);
+        chat.appendChild(el);
+        chat.scrollTop = chat.scrollHeight;
+        return el;
+      }
+
+      // Gerçek ELISHA API — SSE streaming
+      async function sendToElisha(text) {
+        if (!text.trim()) return;
+        appendMessage("user", text);
+        input.value = "";
+        setMode("thinking");
+        var botEl = appendMessage("bot", "");
+        var full = "";
+        try {
+          var r = await fetch("/api/chat_stream", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({text: text})
+          });
+          if (!r.ok || !r.body) throw new Error(r.status);
+          var reader = r.body.getReader();
+          var dec = new TextDecoder();
+          var buf = "";
+          while (true) {
+            var chunk = await reader.read();
+            if (chunk.done) break;
+            buf += dec.decode(chunk.value, {stream: true});
+            var idx;
+            while ((idx = buf.indexOf("\n\n")) >= 0) {
+              var raw = buf.slice(0, idx).trim();
+              buf = buf.slice(idx + 2);
+              if (!raw.startsWith("data: ")) continue;
+              var ev;
+              try { ev = JSON.parse(raw.slice(6)); } catch(e) { continue; }
+              if (ev.type === "status") {
+                agentStatus.textContent = ev.text;
+                agentStatus.classList.add("active");
+              } else if (ev.type === "token") {
+                full += ev.text;
+                botEl.lastChild.textContent = full;
+                chat.scrollTop = chat.scrollHeight;
+              } else if (ev.type === "done") {
+                full = ev.reply || full;
+                botEl.lastChild.textContent = full;
+              } else if (ev.type === "error") {
+                botEl.lastChild.textContent = "Hata: " + ev.error;
+              }
+            }
+          }
+          if (!full) botEl.lastChild.textContent = "...";
+          setMode("idle");
+          if (ttsToggle.getAttribute("aria-checked") === "true" && full) {
+            speak(full);
+          }
+        } catch(e) {
+          // Fallback eski API
+          try {
+            var r2 = await fetch("/api/chat", {
+              method: "POST",
+              headers: {"Content-Type": "application/json"},
+              body: JSON.stringify({text: text})
+            });
+            var j = await r2.json();
+            botEl.lastChild.textContent = j.reply || "...";
+            if (ttsToggle.getAttribute("aria-checked") === "true") speak(j.reply || "");
+          } catch(e2) {
+            botEl.lastChild.textContent = "Bağlantı hatası";
+          }
+          setMode("idle");
+        }
+      }
+
+      function speak(text) {
+        var clean = (text || "").replace(/\[ACTION:[^\]]+\]/g, "").trim().slice(0, 400);
+        if (!clean) return;
+        setMode("speaking");
+        fetch("/api/tts", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({text: clean})
+        }).then(function(r) { return r.json(); })
+        .then(function(j) {
+          if (!j.audio) { fallbackSpeak(clean); return; }
+          var bytes = Uint8Array.from(atob(j.audio), function(c) { return c.charCodeAt(0); });
+          var a = new Audio(URL.createObjectURL(new Blob([bytes], {type: "audio/wav"})));
+          a.onended = function() { setMode("idle"); };
+          a.play().catch(function() { fallbackSpeak(clean); });
+        }).catch(function() { fallbackSpeak(clean); });
+      }
+
+      function fallbackSpeak(t) {
+        if ("speechSynthesis" in window) {
+          var u = new SpeechSynthesisUtterance(t);
+          u.lang = "tr-TR"; u.rate = 1;
+          u.onend = function() { setMode("idle"); };
+          speechSynthesis.speak(u);
+        } else { setMode("idle"); }
+      }
+
+      // Form submit
+      form.addEventListener("submit", function (e) {
+        e.preventDefault();
+        sendToElisha(input.value);
+      });
+
+      // Mic button — gerçek STT
+      micBtn.addEventListener("click", function () {
+        var pressed = micBtn.getAttribute("aria-pressed") === "true";
+        if (pressed) {
+          setMode("idle");
+          micBtn.setAttribute("aria-pressed", "false");
+        } else {
+          setMode("listening");
+          micBtn.setAttribute("aria-pressed", "true");
+          fetch("/api/wake", {method: "POST"})
+            .then(function(r) { return r.json(); })
+            .then(function(j) {
+              micBtn.setAttribute("aria-pressed", "false");
+              if (j.wake && j.text) {
+                sendToElisha(j.text);
+              } else {
+                setMode("idle");
+              }
+            }).catch(function() {
+              micBtn.setAttribute("aria-pressed", "false");
+              setMode("idle");
+            });
+        }
+      });
+
+      // TTS toggle
+      ttsToggle.addEventListener("click", function () {
+        var on = ttsToggle.getAttribute("aria-checked") === "true";
+        ttsToggle.setAttribute("aria-checked", on ? "false" : "true");
+        pillTts.classList.toggle("on", !on);
+      });
+
+      // Status fetch
+      async function fetchStatus() {
+        try {
+          var r = await fetch("/api/status");
+          var j = await r.json();
+          pillStt.textContent = j.stt || "STT";
+          pillTts.textContent = j.tts || "TTS";
+        } catch(e) {}
+      }
+      fetchStatus(); setInterval(fetchStatus, 15000);
+
+      // External wake (wake daemon)
+      window.ELISHA_EXTERNAL_WAKE = function(reason) {
+        setMode("listening");
+        appendMessage("bot", "Efendim?");
+      };
+
+      // Keep alive
+      setInterval(function() { try { pywebview.api.keep_alive(); } catch(e) {} }, 5000);
+    })();
+  </script>
 </body>
 </html>
