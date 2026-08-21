@@ -6,6 +6,7 @@ from .tts.engine import TTSEngine
 from .llm.engine import LLMEngine
 from .wakeword.detector import WakeWordDetector
 from .skills.registry import SkillRegistry
+from .log import log, err
 
 class ElishaOrchestrator:
     def __init__(self, config_path=None):
@@ -26,7 +27,7 @@ class ElishaOrchestrator:
         self.memory = MemoryStore(self.config) if mem_cfg.get("enabled", True) else None
         if self.memory is not None:
             n = self.memory.count_memories()
-            print(f"🧠 Hafıza: {self.memory.db_path} ({n} kayıt)")
+            log("MEMORY", f"🧠 {self.memory.db_path} ({n} kayıt)")
         from .tools import build_default_registry
         registry = build_default_registry(self.config, self.memory)
         self.registry = registry
@@ -48,9 +49,9 @@ class ElishaOrchestrator:
                     permissions=self.permissions,
                     memory_store=self.memory,
                 )
-                print(f"🤖 Agent modu açık ({len(registry.names())} araç, max {self.agent.max_steps} adım)")
+                log("AGENT", f"🤖 açık ({len(registry.names())} araç, max {self.agent.max_steps} adım)")
             except Exception as e:
-                print(f"⚠️ Agent başlatılamadı, eski sisteme düşülüyor: {e}")
+                err(f"agent başlatılamadı, V1 fallback kullanılacak: {e}")
                 self.agent = None
         self._restore_session()
 
@@ -62,12 +63,12 @@ class ElishaOrchestrator:
             recent = self.memory.recent_messages(limit=10)
             if recent:
                 self.llm.history = [{"role": r["role"], "content": r["content"]} for r in recent]
-                print(f"💬 Oturum geri yüklendi ({len(recent)} mesaj)")
+                log("MEMORY", f"💬 oturum geri yüklendi ({len(recent)} mesaj)")
         except Exception as e:
-            print(f"⚠️ Oturum geri yuklenemedi: {e}")
+            err(f"oturum geri yüklenemedi: {e}")
 
     def _emit_status(self, text: str):
-        print(f"   ⏳ {text}")
+        log("STT", f"⏳ {text}")
         cb = getattr(self, "status_callback", None)
         if cb:
             try:
@@ -85,7 +86,7 @@ class ElishaOrchestrator:
                 self.memory.save_message("user", user_text)
                 self.memory.save_message("assistant", assistant_text)
             except Exception as e:
-                print(f"⚠️ Konuşma kaydedilemedi: {e}")
+                err(f"konuşma kaydedilemedi: {e}")
 
     def process_text(self, text: str) -> str:
         """
@@ -100,7 +101,7 @@ class ElishaOrchestrator:
             if not text:
                 return "Efendim? Seni dinliyorum."
 
-        print(f"👤 Kullanıcı: {text}")
+        log("USER", f"👤 {text}")
 
         # GÜVENLİK: bekleyen onay varsa önce onu çöz
         if self.permissions.has_pending():
@@ -108,12 +109,12 @@ class ElishaOrchestrator:
             result = self.permissions.resolve(self.registry, text)
             if result is not None:
                 answer = result.message or ("Tamam, yaptım." if result.success else f"Yapamadım: {result.error}")
-                print(f"🔐 Onay sonucu: {answer[:120]}")
+                log("SECURITY", f"onay sonucu: {answer[:120]}")
                 self._remember_turn(text, answer)
                 return answer
             # cevap evet/hayır değilse hatırlat ve normal akışa devam etme
             reminder = f"Onay bekliyor: {pending_q} (evet / hayır)"
-            print(f"🔐 {reminder}")
+            log("SECURITY", reminder)
             return reminder
 
         # V2.1: deterministik hızlı yol — yaygın komutlar LLM'siz anında çalışır
@@ -123,18 +124,18 @@ class ElishaOrchestrator:
                 fast = self.fastpath.try_route(text)
             except self._need_confirm_cls as nc:
                 # hızlı yol HIGH/CRITICAL araca çarptı -> onay akışı
-                print(f"🔐 Onay istendi (hızlı yol): {nc.message}")
+                log("SECURITY", f"hızlı yol onay istendi: {nc.message}")
                 self._remember_turn(text, nc.message)
                 return nc.message
             except Exception as e:
-                print(f"⚠️ Hızlı yol hatası ({e}), agent'a düşülüyor")
+                err(f"hızlı yol hatası ({e}), agent'a düşülüyor")
             if fast:
-                print(f"⚡ Hızlı yol: {fast[:120]}")
+                log("FASTPATH", f"⚡ {fast[:120]}")
                 self.llm.history.append({"role": "user", "content": text})
                 self.llm.history.append({"role": "assistant", "content": fast})
                 if len(self.llm.history) > 10:
                     self.llm.history = self.llm.history[-10:]
-                print(f"🤖 ELİŞA: {fast}")
+                log("CHAT", f"🤖 {fast}")
                 return fast
 
         # V2: gerçek agent döngüsü (native tool calling)
@@ -144,19 +145,19 @@ class ElishaOrchestrator:
                 final = (result.final_text or "").strip()
                 if final:
                     self._remember_turn(text, final)
-                    print(f"🤖 ELİŞA: {final}")
+                    log("CHAT", f"🤖 {final}")
                     return final
-                print("⚠️ Agent boş döndü, eski sisteme düşülüyor")
+                log("AGENT", "boş döndü, V1 fallback'e düşülüyor")
             except self._need_confirm_cls as nc:
-                print(f"🔐 Onay istendi: {nc.message}")
+                log("SECURITY", f"agent onay istedi: {nc.message}")
                 self._remember_turn(text, nc.message)
                 return nc.message
             except Exception as e:
-                print(f"⚠️ Agent hatası ({e}), eski sisteme düşülüyor")
+                err(f"agent hatası ({e}), V1 fallback'e düşülüyor")
 
         # V1 fallback: regex [ACTION] sistemi
         llm_raw = self.llm.chat(text)
-        print(f"🧠 LLM ham: {llm_raw[:400]}")
+        log("LLM", f"🧠 ham: {llm_raw[:200]}")
         clean, skill_results = self.skills.handle_text(llm_raw)
 
         # Fallback SADECE LLM anlamlı bir cevap üretemediyse çalışır
@@ -165,7 +166,7 @@ class ElishaOrchestrator:
         if not skill_results and not meaningful:
             fallback = self._fallback_skill(text)
             if fallback:
-                print(f"🔄 Fallback skill: {fallback[:100]}")
+                log("SKILL", f"🔄 fallback: {fallback[:100]}")
                 clean2, skill_results2 = self.skills.handle_text(fallback)
                 if skill_results2:
                     clean = clean2
@@ -184,7 +185,7 @@ class ElishaOrchestrator:
         if not final:
             final = llm_raw.strip() or "Bir şey diyemedim."
 
-        print(f"🤖 ELİŞA: {final}")
+        log("CHAT", f"🤖 {final}")
         return final
 
     def speak(self, text: str):
@@ -211,7 +212,7 @@ class ElishaOrchestrator:
             text = self.stt.transcribe(audio)
             return text
         except Exception as e:
-            print(f"Dinleme hatası: {e}")
+            err(f"dinleme hatası: {e}")
             return ""
 
     def run_voice_loop(self):
@@ -241,7 +242,7 @@ class ElishaOrchestrator:
                         continue
                 if not text:
                     continue
-                print(f"📝 STT: {text}")
+                log("STT", f"📝 {text}")
                 # wake word text fallback
                 if self.wakeword.enabled and "elişa" not in text.lower() and "elisha" not in text.lower():
                     # wake word bekleniyor ama yoksa da devam et (V1'de katı değil)

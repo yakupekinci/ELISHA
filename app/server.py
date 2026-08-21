@@ -10,6 +10,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from elisha.orchestrator import ElishaOrchestrator
+from elisha.log import log, err
 
 PORT = 8765
 WEB_DIR = Path(__file__).parent / "web"
@@ -24,9 +25,9 @@ def get_bot():
     global _bot
     with _bot_lock:
         if _bot is None:
-            print("ELİŞA yükleniyor...")
+            log("SERVER", "ELİŞA yükleniyor...")
             _bot = ElishaOrchestrator()
-            print(f"ELİŞA hazır: {_bot.stt.provider} / {_bot.tts.provider} / {_bot.llm.provider}")
+            log("SERVER", f"✅ hazır: {_bot.stt.provider} / {_bot.tts.provider} / {_bot.llm.provider}")
     return _bot
 
 # Piper voice cache (her istekte yeniden yükleme!)
@@ -41,7 +42,7 @@ def get_piper():
             if not model.exists():
                 raise FileNotFoundError(f"piper model yok: {model}")
             _piper_voice = PiperVoice.load(str(model))
-            print("✅ Piper cache'lendi")
+            log("TTS", "Piper cache'lendi")
     return _piper_voice
 
 # LLM chat lock — aynı anda tek istek işlensin (Ollama güvenliği)
@@ -238,13 +239,13 @@ def main():
     threading.Thread(target=get_bot, daemon=True).start()
     def _warm_piper():
         try: get_piper()
-        except Exception as e: print(f"piper warmup: {e}")
+        except Exception as e: err(f"piper warmup: {e}")
     threading.Thread(target=_warm_piper, daemon=True).start()
     httpd = ThreadingHTTPServer(("", PORT), Handler)  # ÇOKLU THREAD - Failed to fetch fix
     httpd.daemon_threads = True
-    print(f"✨ ELİŞA web http://localhost:{PORT} (threading)")
+    log("SERVER", f"✨ web http://localhost:{PORT} (threading)")
     try: httpd.serve_forever()
-    except KeyboardInterrupt: print("\ndurdu")
+    except KeyboardInterrupt: log("SERVER", "durdu")
 
 if __name__ == "__main__":
     main()

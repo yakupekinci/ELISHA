@@ -7,6 +7,7 @@ import requests
 
 from .persona_agent import AGENT_PROMPT_TR
 from .tools.registry import ToolRegistry
+from .log import log, err
 from .security import NeedConfirmation, PermissionManager
 
 
@@ -88,7 +89,7 @@ class AgentLoop:
             tool_calls = msg.get("tool_calls") or []
 
             if not tool_calls and self._is_malformed(content):
-                print(f"⚠️ Bozuk LLM çıktısı, tekrar deneniyor: {content[:80]}")
+                err(f"bozuk LLM çıktısı, tekrar deneniyor: {content[:80]}")
                 msg = self._chat(messages, tools)
                 content = (msg.get("content") or "").strip()
                 tool_calls = msg.get("tool_calls") or []
@@ -139,7 +140,7 @@ class AgentLoop:
                     "success": result.success,
                     "result": result.to_dict(),
                 })
-                print(f"🔧 TOOL {name}({args}) -> {'OK' if result.success else 'FAIL'} "
+                log("TOOL", f"🔧 {name}({args}) -> {'OK' if result.success else 'FAIL'} "
                       f"[{dt:.2f}s] {result_text[:150]}")
                 messages.append({"role": "tool", "content": result_text})
 
