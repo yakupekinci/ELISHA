@@ -65,15 +65,17 @@ def js_api():
             return "ok"
     return Api()
 
+# Masaüstü overlay — şeffaf, çerçevesiz, her zaman üstte
 window = webview.create_window(
     "ELİŞA",
-    "http://localhost:8765",
-    width=430, height=620,
+    "http://localhost:8765/overlay.html",
+    width=380, height=560,
     frameless=True,
     on_top=True,
     hidden=True,
-    easy_drag=False,
-    background_color="#0a0a14",
+    transparent=True,
+    easy_drag=True,
+    background_color="#000000",
     js_api=js_api(),
 )
 
@@ -86,7 +88,9 @@ def do_show(reason=""):
     try:
         import AppKit
         f = AppKit.NSScreen.mainScreen().frame()
-        x = int((f.size.width - 430)/2); y = int(f.size.height - 680)
+        # Sağ alt köşede, dock'un üstünde
+        x = int(f.size.width - 400)
+        y = int(f.size.height - 600)
         window.move(x, y)
     except Exception:
         pass
@@ -117,7 +121,7 @@ def poll():
                 txt = WAKE_FILE.read_text().strip(); WAKE_FILE.unlink()
                 print(f"✨ wake: {txt}")
                 do_show(txt)
-            if STATE["visible"] and time.time()-STATE["last"] > 15:
+            if STATE["visible"] and time.time()-STATE["last"] > 60:
                 do_hide()
         except Exception as e:
             print(f"poll: {e}")
