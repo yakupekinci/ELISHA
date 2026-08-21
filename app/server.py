@@ -48,6 +48,36 @@ def get_piper():
 # LLM chat lock — aynı anda tek istek işlensin (Ollama güvenliği)
 _chat_lock = threading.Lock()
 
+# TTS lock — aynı anda tek ses çalsın
+_tts_lock = threading.Lock()
+
+def _speak_async(text: str):
+    """Cevabı Piper ile sentezle, afplay ile çal (pywebview bypass)."""
+    clean = text.strip()[:400]
+    # Araç mesajları, kısa cevaplar ve emoji'leri temizle
+    import re as _re
+    clean = _re.sub(r'\[ACTION:[^\]]+\]', '', clean).strip()
+    if len(clean) < 2:
+        return
+    with _tts_lock:
+        try:
+            import numpy as np, soundfile as sf, tempfile, subprocess as _sp
+            voice = get_piper()
+            chunks = list(voice.synthesize(clean))
+            if not chunks:
+                return
+            audio = np.concatenate([np.array(c.audio_float_array) for c in chunks])
+            sr = chunks[0].sample_rate
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
+                wav_path = tf.name
+                sf.write(wav_path, audio, sr)
+            _sp.run(["afplay", wav_path], stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+            from pathlib import Path as _P
+            try: _P(wav_path).unlink()
+            except: pass
+        except Exception as e:
+            log("TTS", f"speak_async hata: {e}")
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=str(WEB_DIR), **kw)
@@ -115,11 +145,17 @@ class Handler(SimpleHTTPRequestHandler):
             if parsed.path == "/api/chat":
                 data = json.loads(body) if body else {}
                 text = (data.get("text") or "").strip()
+                tts_on = data.get("tts", True)  # varsayılan: sesli
                 if not text:
                     return self._json(400, {"error": "no text"})
                 bot = get_bot()
-                with _chat_lock:  # LLM seri çalışsın, history bozulmasın
+                with _chat_lock:
                     reply = bot.process_text(text)
+                # Otomatik TTS — server tarafında afplay ile çal
+                if tts_on and reply and len(reply.strip()) > 1:
+                    threading.Thread(
+                        target=_speak_async, args=(reply,), daemon=True
+                    ).start()
                 self._json(200, {"reply": reply, "text": text})
                 return
 
@@ -144,9 +180,13 @@ class Handler(SimpleHTTPRequestHandler):
                 audio = np.concatenate([np.array(c.audio_float_array) for c in chunks])
                 sr = chunks[0].sample_rate
                 with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
-                    sf.write(tf.name, audio, sr)
-                    wav_bytes = Path(tf.name).read_bytes()
-                    Path(tf.name).unlink()
+                    wav_path = tf.name
+                    sf.write(wav_path, audio, sr)
+                    wav_bytes = Path(wav_path).read_bytes()
+                # Server tarafında da afplay ile çal (pywebview autoplay sorunu bypass)
+                import subprocess as _sp
+                _sp.Popen(["afplay", wav_path],
+                          stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
                 self._json(200, {"audio": base64.b64encode(wav_bytes).decode(), "sr": sr})
                 return
 
@@ -224,13 +264,15 @@ class Handler(SimpleHTTPRequestHandler):
             elif kind == "error":
                 self._sse_send({"type": "error", "error": val})
                 break
-            else:  # done -> cevabı kademeli gönder
+            else:  # done -> cevabı kademeli gönder + server TTS
                 words, buf = val.split(" "), ""
                 for w in words:
                     buf += (w + " ")
                     self._sse_send({"type": "token", "text": w + " "})
                     time.sleep(0.012)
                 self._sse_send({"type": "done", "reply": val})
+                # Server tarafında TTS çal
+                threading.Thread(target=_speak_async, args=(val,), daemon=True).start()
                 break
 
 def main():
