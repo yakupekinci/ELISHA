@@ -12,9 +12,10 @@ class FastPath:
     Ollama kapalıyken bile çalışır. Karmaşık/çok adımlı istekler agent loop'a düşer.
     """
 
-    def __init__(self, config: dict, registry: ToolRegistry):
+    def __init__(self, config: dict, registry: ToolRegistry, memory_store=None):
         self.config = config
         self.registry = registry
+        self.memory = memory_store
 
     def try_route(self, text: str) -> Optional[str]:
         t = text.lower().strip()
@@ -24,6 +25,12 @@ class FastPath:
         # --- dosya oluştur (müzik/uygulama kurallarından ÖNCE) ---
         if self._is_create_file(t):
             return self._create_file(t)
+
+        # --- hafıza: hatırla / unut ---
+        if re.search(r"\b(hatırla|hatirla|aklında tut|aklinda tut|ezberle)\b", t):
+            return self._remember(text)
+        if re.search(r"\bunut\b", t):
+            return self._forget(text)
 
         # --- müzik/şarkı (uygulama açmadan önce) ---
         if any(w in t for w in ["çal ", " çal", "şarkı", "sarki", "müzik", "muzik"]):
@@ -124,3 +131,38 @@ class FastPath:
             q = "türkçe pop"
         r = self.registry.execute("play_music", {"query": q})
         return r.message if r.success else f"Müziği başlatamadım: {r.error}"
+
+    # ---------- hafıza ----------
+
+    def _remember(self, original: str) -> str:
+        if self.memory is None:
+            return "Hafıza şu an kapalı."
+        value = re.sub(
+            r"\b(elişa|eleşa|elisha|hey|bunu|şunu|sunu|onu|lütfen|lutfen|hatırla|hatirla|"
+            r"aklında tut|aklinda tut|ezberle|kaydet)\b",
+            "", original, flags=re.I).strip(" ,.!?")
+        if len(value) < 3:
+            value = original
+        words = [w for w in re.split(r"\W+", value.lower()) if len(w) > 2][:4]
+        key = "_".join(words) or f"not_{int(__import__('time').time())}"
+        category = "genel"
+        v = value.lower()
+        if any(w in v for w in ["geliştir", "gelistir", "proje", "yazılım", "yazilim", "kod", "çalışıyorum", "calisiyorum"]):
+            category = "proje"
+        elif any(w in v for w in ["adım", "adim", "ismim", "benim ad"]):
+            category = "kisi"
+        elif any(w in v for w in ["seviyorum", "tercih", "tercih", "hoşuma", "hosuma"]):
+            category = "tercih"
+        importance = 2.0 if "önemli" in v or "onemli" in v else 1.0
+        ok = self.memory.remember(key, value, category, importance)
+        return "Tamam, bunu akılda tutacağım." if ok else "Bunu kaydedemedim."
+
+    def _forget(self, original: str) -> str:
+        if self.memory is None:
+            return "Hafıza şu an kapalı."
+        q = re.sub(r"\b(elişa|eleşa|elisha|hey|bunu|şunu|onu|lütfen|unut|unuttum|artık|artik|tamam)\b",
+                   "", original, flags=re.I).strip(" ,.!?")
+        n = self.memory.forget(q)
+        if n > 0:
+            return "Tamam, artık onu unuttum."
+        return "Böyle bir kayıt bulamadım zaten."

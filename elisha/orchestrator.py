@@ -21,12 +21,18 @@ class ElishaOrchestrator:
         self.fastpath = None
         from .fastpath import FastPath
         from .security import PermissionManager, NeedConfirmation
+        from .memory import MemoryStore
+        mem_cfg = self.config.get("memory", {}) or {}
+        self.memory = MemoryStore(self.config) if mem_cfg.get("enabled", True) else None
+        if self.memory is not None:
+            n = self.memory.count_memories()
+            print(f"🧠 Hafıza: {self.memory.db_path} ({n} kayıt)")
         from .tools import build_default_registry
-        registry = build_default_registry(self.config)
+        registry = build_default_registry(self.config, self.memory)
         self.registry = registry
-        self.permissions = PermissionManager(self.config)
+        self.fastpath = FastPath(self.config, registry, self.memory)
         self._need_confirm_cls = NeedConfirmation
-        self.fastpath = FastPath(self.config, registry)
+        self.permissions = PermissionManager(self.config)
         agent_cfg = self.config.get("agent", {}) or {}
         if agent_cfg.get("enabled", True) and self.llm.provider == "ollama":
             try:
@@ -38,11 +44,25 @@ class ElishaOrchestrator:
                     registry,
                     on_status=self._emit_status,
                     permissions=self.permissions,
+                    memory_store=self.memory,
                 )
                 print(f"🤖 Agent modu açık ({len(registry.names())} araç, max {self.agent.max_steps} adım)")
             except Exception as e:
                 print(f"⚠️ Agent başlatılamadı, eski sisteme düşülüyor: {e}")
                 self.agent = None
+        self._restore_session()
+
+    def _restore_session(self):
+        """Restart sonrası son konuşmaları ve hafızayı geri yükle."""
+        if self.memory is None:
+            return
+        try:
+            recent = self.memory.recent_messages(limit=10)
+            if recent:
+                self.llm.history = [{"role": r["role"], "content": r["content"]} for r in recent]
+                print(f"💬 Oturum geri yüklendi ({len(recent)} mesaj)")
+        except Exception as e:
+            print(f"⚠️ Oturum geri yuklenemedi: {e}")
 
     def _emit_status(self, text: str):
         print(f"   ⏳ {text}")
@@ -58,6 +78,12 @@ class ElishaOrchestrator:
         self.llm.history.append({"role": "assistant", "content": assistant_text})
         if len(self.llm.history) > 10:
             self.llm.history = self.llm.history[-10:]
+        if self.memory is not None:
+            try:
+                self.memory.save_message("user", user_text)
+                self.memory.save_message("assistant", assistant_text)
+            except Exception as e:
+                print(f"⚠️ Konuşma kaydedilemedi: {e}")
 
     def process_text(self, text: str) -> str:
         """

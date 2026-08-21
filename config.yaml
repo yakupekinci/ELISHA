@@ -56,6 +56,12 @@ agent:
   enabled: true       # V2 gerçek agent döngüsü (native tool calling)
   max_steps: 8        # tek istekte en fazla araç çağrısı + tur sayısı
 
+memory:
+  enabled: true
+  backend: sqlite
+  db_path: data/elisha.db
+  session_id: default
+
 security:
   require_confirmation_for:
     - HIGH

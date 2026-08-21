@@ -33,13 +33,15 @@ class AgentLoop:
     def __init__(self, config: dict, llm_host: str, llm_model: str,
                  registry: ToolRegistry,
                  on_status: Optional[Callable[[str], None]] = None,
-                 permissions: Optional[PermissionManager] = None):
+                 permissions: Optional[PermissionManager] = None,
+                 memory_store=None):
         self.config = config
         self.host = llm_host
         self.model = llm_model
         self.registry = registry
         self.on_status = on_status or (lambda s: None)
         self.permissions = permissions or PermissionManager(config)
+        self.memory = memory_store
         agent_cfg = config.get("agent", {}) or {}
         self.enabled = bool(agent_cfg.get("enabled", True))
         self.max_steps = int(agent_cfg.get("max_steps", 8))
@@ -56,7 +58,15 @@ class AgentLoop:
 
     def run(self, user_text: str, history: Optional[List[Dict[str, str]]] = None) -> AgentResult:
         tools = self.registry.to_ollama_tools()
-        messages: List[Dict[str, Any]] = [{"role": "system", "content": self.system_prompt}]
+        system_prompt = self.system_prompt
+        if self.memory is not None:
+            try:
+                mem_block = self.memory.context_block()
+                if mem_block:
+                    system_prompt = system_prompt + "\n\n" + mem_block
+            except Exception:
+                pass
+        messages: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}]
         if history:
             messages.extend(history)
         messages.append({"role": "user", "content": user_text})

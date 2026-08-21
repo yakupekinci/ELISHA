@@ -2,7 +2,7 @@ from .base import Tool, ToolResult, RiskLevel
 from .registry import ToolRegistry
 
 
-def build_default_registry(config: dict) -> ToolRegistry:
+def build_default_registry(config: dict, memory_store=None) -> ToolRegistry:
     from .system_tools import (
         GetTimeTool, GetDateTool, GetSystemInfoTool, SetVolumeTool,
         OpenApplicationTool, CloseApplicationTool, TakeScreenshotTool,
@@ -24,4 +24,11 @@ def build_default_registry(config: dict) -> ToolRegistry:
         DeleteFileTool(config), WebSearchTool(config), FetchWebpageTool(config),
     ):
         reg.register(tool)
+
+    if memory_store is not None:
+        from .memory_tools import RememberTool, RecallTool, ForgetTool
+        reg.register(RememberTool(config, memory_store))
+        reg.register(RecallTool(config, memory_store))
+        reg.register(ForgetTool(config, memory_store))
+
     return reg
