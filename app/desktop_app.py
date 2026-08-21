@@ -53,6 +53,18 @@ print("menü bar başladı")
 # ---------- WEBVIEW (ANA THREAD) ----------
 import webview
 
+# macOS: Dock'ta Python ikonu GÖSTERMEMELİ
+import sys
+if sys.platform == "darwin":
+    try:
+        from Foundation import NSBundle
+        bundle = NSBundle.mainBundle()
+        info = bundle.localizedInfoDictionary() or bundle.infoDictionary()
+        if info:
+            info["LSUIElement"] = "1"
+    except Exception:
+        pass
+
 STATE = {"visible": False, "last": 0}
 
 def js_api():
@@ -65,7 +77,7 @@ def js_api():
             return "ok"
     return Api()
 
-# Masaüstü overlay — şeffaf, çerçevesiz, her zaman üstte
+# Masaüstü overlay — şeffaf, çerçevesiz, her zaman üstte, GİZLİ BAŞLAR
 window = webview.create_window(
     "ELİŞA",
     "http://localhost:8765/overlay.html",
@@ -104,11 +116,8 @@ def do_show(reason=""):
             print(f"js: {e}")
 
 def on_loaded():
-    # hazır işareti: kısa göster, gizle
-    do_show("")
-    time.sleep(1.0)
-    do_hide()
-    print("panel hazır (gizli)")
+    # Panel hazır ama GİZLİ KALACAK — sadece wake/menubar açar
+    print("panel hazır (gizli başladı)")
 
 window.events.loaded += on_loaded
 
@@ -129,5 +138,15 @@ def poll():
 
 threading.Thread(target=poll, daemon=True).start()
 
-print("✨ ELİŞA gizli modda — 'hey elişa uyan' de veya menü çubuğundaki ✦'a bas")
-webview.start(debug=False)  # ANA THREAD — beyaz ekran fix'i de burada: server hazır olduktan sonra yükleniyor
+print("✨ ELISHA gizli modda — menü çubuğundaki ✦'a bas veya 'hey elişa uyan' de")
+
+def _hide_dock():
+    """pywebview başladıktan sonra dock ikonunu gizle"""
+    import time as _t; _t.sleep(0.3)
+    try:
+        import AppKit
+        AppKit.NSApp.setActivationPolicy_(AppKit.NSApplicationActivationPolicyAccessory)
+    except Exception:
+        pass
+
+webview.start(func=_hide_dock, debug=False)

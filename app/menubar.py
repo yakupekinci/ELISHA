@@ -1,6 +1,16 @@
 """Menü bar ✦ ikonu — ayrı süreç (rumps ana thread ister)
 Tık: 'Uyan' -> /tmp/elisha_wake yazar -> panel açılır
 """
+import sys
+if sys.platform == "darwin":
+    try:
+        from Foundation import NSBundle
+        info = NSBundle.mainBundle().infoDictionary()
+        if info:
+            info["LSUIElement"] = "1"
+    except Exception:
+        pass
+
 import rumps, pathlib
 WAKE = pathlib.Path("/tmp/elisha_wake")
 ENABLE = pathlib.Path("/tmp/elisha_wake_enabled")

@@ -101,6 +101,12 @@ class ElishaOrchestrator:
             if not text:
                 return "Efendim? Seni dinliyorum."
 
+        # Kısa selamlamaları direkt yanıtla (LLM'e gönderme)
+        t_lower = text.lower().strip()
+        if t_lower in ("uyan", "hey", "merhaba", "selam", "naber", "hey elişa",
+                       "elişa", "elisha", "hi", "hello"):
+            return "Buradayım, seni dinliyorum."
+
         log("USER", f"👤 {text}")
 
         # GÜVENLİK: bekleyen onay varsa önce onu çöz
