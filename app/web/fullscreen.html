@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8"/>
+<title>ELISHA — Tam Ekran</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#050508;font-family:system-ui}
+.fullscreen{width:100%;height:100%;display:flex;align-items:center;justify-content:center;position:relative;cursor:none}
+
+/* Arka plan gradient nefes */
+.bg-glow{position:absolute;inset:0;opacity:.4;transition:opacity 1s}
+.bg-glow::before,.bg-glow::after{content:'';position:absolute;border-radius:50%;filter:blur(120px)}
+.bg-glow::before{width:600px;height:600px;top:50%;left:50%;transform:translate(-50%,-50%);background:radial-gradient(circle,rgba(124,58,237,.3),transparent 70%);animation:bg-breathe 4s ease-in-out infinite}
+.bg-glow::after{width:400px;height:400px;top:50%;left:50%;transform:translate(-50%,-50%);background:radial-gradient(circle,rgba(255,46,151,.2),transparent 70%);animation:bg-breathe 4s ease-in-out infinite 1s}
+@keyframes bg-breathe{0%,100%{transform:translate(-50%,-50%) scale(1)}50%{transform:translate(-50%,-50%) scale(1.15)}}
+
+/* Ana orb konteyner */
+.orb-container{position:relative;width:220px;height:220px;display:flex;align-items:center;justify-content:center}
+
+/* Dış halkalar */
+.ring{position:absolute;border-radius:50%;border:1px solid rgba(124,58,237,.15)}
+.ring-1{inset:-30px;animation:ring-rotate 20s linear infinite}
+.ring-2{inset:-55px;animation:ring-rotate 30s linear infinite reverse;border-style:dashed;border-color:rgba(167,139,250,.1)}
+.ring-3{inset:-80px;animation:ring-rotate 40s linear infinite;border-color:rgba(6,182,212,.08)}
+@keyframes ring-rotate{to{transform:rotate(360deg)}}
+
+/* Ana orb */
+.orb{
+  width:160px;height:160px;border-radius:50%;position:relative;
+  background:radial-gradient(circle at 35% 30%,#fff 0%,#e8d5ff 8%,#c084fc 18%,#7c3aed 40%,#3b0764 65%,#0f0020 85%);
+  box-shadow:0 0 60px rgba(124,58,237,.4),0 0 120px rgba(124,58,237,.2),inset 0 -20px 40px rgba(0,0,0,.3);
+  animation:orb-idle 3.5s ease-in-out infinite;
+  transition:all .6s cubic-bezier(.4,0,.2,1);
+}
+@keyframes orb-idle{0%,100%{transform:scale(1)}50%{transform:scale(1.03)}}
+
+/* Yüz — gözler */
+.face{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:28px;padding-bottom:10px}
+.eye{
+  width:14px;height:14px;border-radius:50%;
+  background:radial-gradient(circle at 40% 35%,#fff 20%,#e0e0ff 50%,#a78bfa 100%);
+  box-shadow:0 0 12px rgba(255,255,255,.6),0 0 24px rgba(167,139,250,.4);
+  animation:eye-blink 4s ease-in-out infinite;
+  transition:all .3s;
+}
+.eye::after{content:'';position:absolute;width:6px;height:6px;background:#1a0a2e;border-radius:50%;top:4px;left:4px;transition:all .2s}
+@keyframes eye-blink{0%,42%,46%,100%{transform:scaleY(1)}44%{transform:scaleY(.1)}}
+
+/* Ağız — konuşma çizgisi */
+.mouth{position:absolute;bottom:55px;left:50%;transform:translateX(-50%);display:flex;gap:3px;align-items:center}
+.mouth-bar{width:4px;height:4px;border-radius:99px;background:rgba(255,255,255,.6);transition:all .2s}
+
+/* DURUMLAR */
+
+/* Listening — büyür, mor parlar */
+[data-mode="listening"] .orb{
+  animation:orb-listen .8s ease-in-out infinite;
+  box-shadow:0 0 80px rgba(255,46,151,.5),0 0 160px rgba(124,58,237,.3);
+}
+[data-mode="listening"] .bg-glow{opacity:.7}
+[data-mode="listening"] .eye{animation:none;box-shadow:0 0 20px rgba(255,255,255,.8),0 0 40px rgba(255,46,151,.5)}
+@keyframes orb-listen{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
+
+/* Speaking — ağız hareket eder, renk kayar, dalgalanır */
+[data-mode="speaking"] .orb{
+  animation:orb-speak 1.2s ease-in-out infinite;
+  background:radial-gradient(circle at 35% 30%,#fff 0%,#d6f5ff 8%,#67e8f9 18%,#06b6d4 40%,#164e63 65%,#0f0020 85%);
+  box-shadow:0 0 80px rgba(6,182,212,.5),0 0 160px rgba(6,182,212,.2);
+}
+[data-mode="speaking"] .bg-glow::before{background:radial-gradient(circle,rgba(6,182,212,.3),transparent 70%)}
+[data-mode="speaking"] .mouth-bar{animation:mouth-wave .3s ease-in-out infinite;background:rgba(255,255,255,.9)}
+[data-mode="speaking"] .mouth-bar:nth-child(2){animation-delay:.05s}
+[data-mode="speaking"] .mouth-bar:nth-child(3){animation-delay:.1s}
+[data-mode="speaking"] .mouth-bar:nth-child(4){animation-delay:.15s}
+[data-mode="speaking"] .mouth-bar:nth-child(5){animation-delay:.2s}
+@keyframes orb-speak{0%,100%{transform:scale(1) rotate(0deg)}25%{transform:scale(1.04) rotate(1deg)}75%{transform:scale(1.02) rotate(-1deg)}}
+@keyframes mouth-wave{0%,100%{height:4px}50%{height:14px}}
+
+/* Thinking — döner, parçacıklar */
+[data-mode="thinking"] .orb{
+  animation:orb-think 2s linear infinite;
+  box-shadow:0 0 60px rgba(124,58,237,.5),0 0 120px rgba(168,85,247,.3);
+}
+[data-mode="thinking"] .ring-1{animation-duration:3s;border-color:rgba(124,58,237,.4)}
+[data-mode="thinking"] .ring-2{animation-duration:4s;border-color:rgba(167,139,250,.3)}
+[data-mode="thinking"] .eye{animation:eye-think 1s ease-in-out infinite}
+@keyframes orb-think{0%{box-shadow:0 0 60px rgba(124,58,237,.5)}50%{box-shadow:0 0 100px rgba(168,85,247,.6)}100%{box-shadow:0 0 60px rgba(124,58,237,.5)}}
+@keyframes eye-think{0%,100%{transform:translateX(0)}50%{transform:translateX(3px)}}
+
+/* Küçült butonu */
+.btn-minimize{
+  position:absolute;top:20px;right:20px;
+  width:40px;height:40px;border-radius:50%;
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
+  color:#9aa0b8;font-size:18px;cursor:pointer;
+  display:grid;place-items:center;
+  opacity:0;transition:opacity .3s;
+}
+.fullscreen:hover .btn-minimize{opacity:1}
+.btn-minimize:hover{background:rgba(255,255,255,.12);color:#fff}
+
+/* Status text — sadece aktifken görünür, minimal */
+.status-hint{
+  position:absolute;bottom:80px;left:50%;transform:translateX(-50%);
+  font-size:13px;color:rgba(255,255,255,.4);letter-spacing:.05em;
+  opacity:0;transition:opacity .5s;
+}
+[data-mode="listening"] .status-hint,
+[data-mode="speaking"] .status-hint,
+[data-mode="thinking"] .status-hint{opacity:1}
+</style>
+</head>
+<body>
+<div class="fullscreen" id="screen" data-mode="idle">
+  <div class="bg-glow"></div>
+  
+  <div class="orb-container">
+    <div class="ring ring-1"></div>
+    <div class="ring ring-2"></div>
+    <div class="ring ring-3"></div>
+    <div class="orb">
+      <div class="face">
+        <div class="eye"></div>
+        <div class="eye"></div>
+      </div>
+      <div class="mouth">
+        <span class="mouth-bar"></span>
+        <span class="mouth-bar"></span>
+        <span class="mouth-bar"></span>
+        <span class="mouth-bar"></span>
+        <span class="mouth-bar"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="status-hint" id="statusHint"></div>
+  <button class="btn-minimize" id="btnMin" title="Küçült">✕</button>
+</div>
+
+<script>
+var screen = document.getElementById('screen');
+var statusHint = document.getElementById('statusHint');
+var btnMin = document.getElementById('btnMin');
+
+function setMode(mode, hint) {
+  screen.setAttribute('data-mode', mode);
+  statusHint.textContent = hint || '';
+}
+
+// Küçült butonu — overlay moduna dön
+btnMin.onclick = function() {
+  try { pywebview.api.switch_to_overlay(); } catch(e) {}
+  window.location.href = '/overlay.html';
+};
+
+// Tıklama ile dinleme başlat
+screen.addEventListener('click', function(e) {
+  if (e.target === btnMin) return;
+  if (screen.getAttribute('data-mode') === 'listening') return;
+  startListening();
+});
+
+function startListening() {
+  setMode('listening', 'Dinliyorum...');
+  fetch('/api/wake', {method: 'POST'})
+    .then(function(r) { return r.json(); })
+    .then(function(j) {
+      if (j.wake && j.text) {
+        processCommand(j.text);
+      } else {
+        setMode('idle', '');
+      }
+    }).catch(function() { setMode('idle', ''); });
+}
+
+async function processCommand(text) {
+  setMode('thinking', 'Düşünüyorum...');
+  try {
+    var r = await fetch('/api/chat_stream', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({text: text})
+    });
+    if (!r.ok || !r.body) throw new Error();
+    var reader = r.body.getReader();
+    var dec = new TextDecoder();
+    var buf = '', full = '';
+    while (true) {
+      var chunk = await reader.read();
+      if (chunk.done) break;
+      buf += dec.decode(chunk.value, {stream: true});
+      var idx;
+      while ((idx = buf.indexOf('\n\n')) >= 0) {
+        var raw = buf.slice(0, idx).trim(); buf = buf.slice(idx + 2);
+        if (!raw.startsWith('data: ')) continue;
+        try {
+          var ev = JSON.parse(raw.slice(6));
+          if (ev.type === 'status') setMode('thinking', ev.text);
+          else if (ev.type === 'token') full += ev.text;
+          else if (ev.type === 'done') full = ev.reply || full;
+        } catch(e) {}
+      }
+    }
+    // Cevap geldi — sesli söyle
+    if (full) {
+      setMode('speaking', '');
+      speak(full, function() { setMode('idle', ''); });
+    } else {
+      setMode('idle', '');
+    }
+  } catch(e) {
+    setMode('idle', '');
+  }
+}
+
+function speak(text, onDone) {
+  var clean = (text || '').replace(/\[ACTION:[^\]]+\]/g, '').trim().slice(0, 400);
+  if (!clean) { onDone(); return; }
+  fetch('/api/tts', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({text: clean})
+  }).then(function(r) { return r.json(); })
+  .then(function(j) {
+    if (!j.audio) { fallbackSpeak(clean, onDone); return; }
+    var bytes = Uint8Array.from(atob(j.audio), function(c) { return c.charCodeAt(0); });
+    var a = new Audio(URL.createObjectURL(new Blob([bytes], {type: 'audio/wav'})));
+    a.onended = onDone;
+    a.play().catch(function() { fallbackSpeak(clean, onDone); });
+  }).catch(function() { fallbackSpeak(clean, onDone); });
+}
+
+function fallbackSpeak(t, onDone) {
+  if ('speechSynthesis' in window) {
+    var u = new SpeechSynthesisUtterance(t);
+    u.lang = 'tr-TR'; u.rate = 1;
+    u.onend = onDone;
+    speechSynthesis.speak(u);
+  } else { onDone(); }
+}
+
+// Wake daemon'dan gelen tetik
+window.ELISHA_EXTERNAL_WAKE = function() {
+  startListening();
+};
+
+// Keep alive
+setInterval(function() { try { pywebview.api.keep_alive(); } catch(e) {} }, 5000);
+
+// İlk 2 saniye kısa demo animasyon (gözler açılır)
+setTimeout(function() { setMode('idle', ''); }, 500);
+</script>
+</body>
+</html>

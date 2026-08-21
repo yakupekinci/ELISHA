@@ -495,6 +495,13 @@
       flex-shrink: 0;
     }
 
+    .btn-fullscreen{
+      width:28px;height:28px;border-radius:8px;border:1px solid rgba(255,255,255,.1);
+      background:rgba(255,255,255,.05);color:#9aa0b8;font-size:14px;cursor:pointer;
+      display:grid;place-items:center;transition:all .15s;
+    }
+    .btn-fullscreen:hover{background:rgba(124,58,237,.2);color:#c4b5fd;border-color:rgba(124,58,237,.3)}
+
     .hint {
       font-size: 11px;
       letter-spacing: 0.02em;
@@ -641,7 +648,8 @@
       </form>
 
       <footer class="footer" data-od-id="footer">
-        <p class="hint" data-od-id="hint-text">Hold <strong>⌥ Space</strong> anywhere · local only</p>
+        <button type="button" class="btn-fullscreen" onclick="window.location.href='/fullscreen.html'" title="Tam ekran modu">⛶</button>
+        <p class="hint" data-od-id="hint-text">✦ tıkla veya seslen</p>
         <button
           type="button"
           class="tts-toggle"
