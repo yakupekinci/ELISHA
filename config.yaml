@@ -86,3 +86,11 @@ android:
   stt_model: tiny
   llm_model: qwen2.5:1.5b
   tts_voice: tr_TR-dfki-medium
+
+# AŞAMA 6: terminal komut aracı — VARSAYILAN KAPALI (güvenlik)
+# Açarsan sadece allowlist'teki komutlar çalışır, her seferinde onay ister.
+tools:
+  run_shell:
+    enabled: false
+    allowlist: [ls, df, uptime, whoami, pwd, date]
+    timeout: 10

@@ -31,4 +31,9 @@ def build_default_registry(config: dict, memory_store=None) -> ToolRegistry:
         reg.register(RecallTool(config, memory_store))
         reg.register(ForgetTool(config, memory_store))
 
+    # AŞAMA 6: shell aracı — yalnızca config'te açıkça açıldıysa
+    if ((config or {}).get("tools", {}) or {}).get("run_shell", {}).get("enabled", False):
+        from .shell_tool import RunShellTool
+        reg.register(RunShellTool(config))
+
     return reg
