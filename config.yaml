@@ -34,7 +34,7 @@ tts:
 llm:
   provider: auto  # auto | ollama | mock
   model: qwen2.5:1.5b
-  # Alternatifler: qwen2.5:1.5b (düşük RAM), llama3.2:3b, gemma2:2b
+  # Alternatifler: qwen2.5:1.5b (düşük RAM), qwen2.5:3b, llama3.2:3b, gemma2:2b
   host: http://localhost:11434
   system_prompt: |
     Sen ELİŞA'sın — kız, Türkçe konuşan, JARVIS'in zarif kız versiyonusun. Adın ELİŞA (Eliyşşa diye okunur), asla Eleşa değil.
@@ -49,8 +49,17 @@ llm:
       Örnek 4: Kullanıcı şarkı/müzik isterse ("avici wake up çal", "müzik aç") -> "Hemen çalıyorum. [ACTION: play_music | query=avici wake up]"
       Örnek 5: Site/url isterse ("youtube'u aç", "github'ı aç") -> "[ACTION: open_url | url=youtube.com | name=YouTube]"
     - Eylem yoksa sıcak sohbet et, "Buyurun, nasıl yardımcı olayım?" gibi.
-  temperature: 0.7
+  temperature: 0.4
   max_tokens: 512
+
+agent:
+  enabled: true       # V2 gerçek agent döngüsü (native tool calling)
+  max_steps: 8        # tek istekte en fazla araç çağrısı + tur sayısı
+
+security:
+  require_confirmation_for:
+    - HIGH
+    - CRITICAL
 
 wakeword:
   enabled: true
