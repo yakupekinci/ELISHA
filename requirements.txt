@@ -1,0 +1,36 @@
+# ELİŞA - Core dependencies (all free, pip install)
+# Python 3.9+
+
+# Audio I/O
+sounddevice>=0.4.6
+soundfile>=0.12.1
+webrtcvad>=2.0.10
+numpy>=1.24.0
+scipy>=1.10.0
+
+# STT - faster-whisper (offline, recommended) - also works with openai-whisper as fallback
+faster-whisper>=1.0.0
+
+# TTS - Piper (offline) + fallback
+piper-tts>=1.2.0
+pyttsx3>=2.90
+
+# LLM - Ollama client (HTTP, no API key) + requests
+requests>=2.31.0
+pyyaml>=6.0
+
+# Wake word - openwakeword (offline, optional)
+openwakeword>=0.6.0
+
+# Utils
+psutil>=5.9.0
+ddgs>=9.0.0
+duckduckgo-search>=6.0.0  # fallback eski isim
+
+# Desktop UI (built-in tkinter, no extra dep) - customTkinter optional
+# customtkinter>=5.2.0
+
+# Android / Kivy (only for APK build, not needed for desktop)
+# kivy>=2.3.0
+# kivymd>=1.1.1
+# buildozer>=1.5.0

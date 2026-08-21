@@ -1,0 +1,129 @@
+"""
+ELİŞA — Siri tarzı gizli asistan (v2)
+- Pencere GİZLİ başlar, menü bar ✦ ikonundan veya 'hey elişa uyan' ile açılır
+- 15sn hareketsizlikte kendini gizler
+Çalıştır: python3 app/desktop_app.py
+"""
+import threading, time, subprocess, sys, json, urllib.request
+from pathlib import Path
+ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(ROOT))
+
+WAKE_FILE = Path("/tmp/elisha_wake")
+HIDE_FILE = Path("/tmp/elisha_hide")
+ENABLE_FILE = Path("/tmp/elisha_wake_enabled")
+ENABLE_FILE.write_text("1")
+
+# ---------- SERVER ----------
+def start_server():
+    from http.server import ThreadingHTTPServer
+    from app.server import Handler
+    httpd = ThreadingHTTPServer(("", 8765), Handler)
+    httpd.daemon_threads = True
+    print("server :8765")
+    httpd.serve_forever()
+
+threading.Thread(target=start_server, daemon=True).start()
+
+def wait_server(timeout=40):
+    for _ in range(timeout*2):
+        try:
+            urllib.request.urlopen("http://localhost:8765/api/health", timeout=1)
+            return True
+        except Exception:
+            time.sleep(0.5)
+    return False
+
+if not wait_server():
+    print("server açılamadı!"); sys.exit(1)
+print("server hazır")
+
+# ---------- WAKE DAEMON ----------
+subprocess.Popen(["python3","-u","app/wake_daemon.py"], cwd=str(ROOT),
+                 stdout=open("/tmp/wake.log","a"), stderr=subprocess.STDOUT,
+                 start_new_session=True)
+print("wake daemon başladı")
+
+# ---------- MENÜ BAR (ayrı süreç) ----------
+subprocess.Popen(["python3","-u","app/menubar.py"], cwd=str(ROOT),
+                 stdout=open("/tmp/menubar.log","a"), stderr=subprocess.STDOUT,
+                 start_new_session=True)
+print("menü bar başladı")
+
+# ---------- WEBVIEW (ANA THREAD) ----------
+import webview
+
+STATE = {"visible": False, "last": 0}
+
+def js_api():
+    class Api:
+        def hide_app(self):
+            do_hide()
+            return "ok"
+        def keep_alive(self):
+            STATE["last"] = time.time()
+            return "ok"
+    return Api()
+
+window = webview.create_window(
+    "ELİŞA",
+    "http://localhost:8765",
+    width=430, height=620,
+    frameless=True,
+    on_top=True,
+    hidden=True,
+    easy_drag=False,
+    background_color="#0a0a14",
+    js_api=js_api(),
+)
+
+def do_hide():
+    try: window.hide()
+    except: pass
+    STATE["visible"] = False
+
+def do_show(reason=""):
+    try:
+        import AppKit
+        f = AppKit.NSScreen.mainScreen().frame()
+        x = int((f.size.width - 430)/2); y = int(f.size.height - 680)
+        window.move(x, y)
+    except Exception:
+        pass
+    window.show()
+    STATE["visible"] = True
+    STATE["last"] = time.time()
+    if reason:
+        try:
+            window.evaluate_js(f"ELISHA_EXTERNAL_WAKE && ELISHA_EXTERNAL_WAKE({json.dumps(reason)})")
+        except Exception as e:
+            print(f"js: {e}")
+
+def on_loaded():
+    # hazır işareti: kısa göster, gizle
+    do_show("")
+    time.sleep(1.0)
+    do_hide()
+    print("panel hazır (gizli)")
+
+window.events.loaded += on_loaded
+
+def poll():
+    while True:
+        try:
+            if HIDE_FILE.exists():
+                HIDE_FILE.unlink(); do_hide()
+            elif WAKE_FILE.exists() and ENABLE_FILE.exists():
+                txt = WAKE_FILE.read_text().strip(); WAKE_FILE.unlink()
+                print(f"✨ wake: {txt}")
+                do_show(txt)
+            if STATE["visible"] and time.time()-STATE["last"] > 15:
+                do_hide()
+        except Exception as e:
+            print(f"poll: {e}")
+        time.sleep(0.4)
+
+threading.Thread(target=poll, daemon=True).start()
+
+print("✨ ELİŞA gizli modda — 'hey elişa uyan' de veya menü çubuğundaki ✦'a bas")
+webview.start(debug=False)  # ANA THREAD — beyaz ekran fix'i de burada: server hazır olduktan sonra yükleniyor

@@ -1,0 +1,73 @@
+# ELİŞA Konfigürasyonu
+assistant:
+  name: "ELİŞA"
+  wake_words: ["hey elişa uyan", "hey elisha uyan", "elişa uyan", "elisha uyan", "hey elişa", "hey elisha", "elişa", "elisha"]
+  language: tr
+  persona: "elisa_girl"  # jarvis kız versiyonu - zarif, zeki, sıcak
+  gender: "female"
+  voice: "female"
+  voice_response: true
+  description: "Türkçe, kız, JARVIS benzeri ama sıcak ve zarif - Piper tr_TR-dfki-medium kadın sesi"
+  wake_phrase: "hey elişa uyan"  # sadece bununla uyanır, Siri gibi
+
+audio:
+  sample_rate: 16000
+  channels: 1
+  record_seconds: 6
+  vad_aggressiveness: 2  # 0-3
+  silence_threshold_ms: 900
+
+stt:
+  provider: auto  # auto | faster-whisper | whisper | mock
+  model: small    # tiny/base/small/medium - Türkçe için small önerilir
+  language: tr
+  device: auto    # auto | cpu | cuda
+
+tts:
+  provider: auto  # auto | piper | pyttsx3 | mock
+  voice: tr_TR-dfki-medium
+  # Alternatifler: tr_TR-dfki-medium, tr_TR-fahrettin-medium
+  # Piper sesleri: https://huggingface.co/rhasspy/piper-voices
+  speed: 1.0
+  piper_model_path: ./voices/tr_TR-dfki-medium.onnx
+
+llm:
+  provider: auto  # auto | ollama | mock
+  model: qwen2.5:1.5b
+  # Alternatifler: qwen2.5:1.5b (düşük RAM), llama3.2:3b, gemma2:2b
+  host: http://localhost:11434
+  system_prompt: |
+    Sen ELİŞA'sın — kız, Türkçe konuşan, JARVIS'in zarif kız versiyonusun. Adın ELİŞA (Eliyşşa diye okunur), asla Eleşa değil.
+    KURALLAR:
+    - Her zaman TÜRKÇE, kısa (1-2 cümle), sıcak ve zarif cevap ver.
+    - Asla "Asistan:" diye başlama, asla [HOUR]/placeholder yazma.
+    - Kendini "ben ELİŞA, kız asistanınız" gibi tanıt. Erkek gibi konuşma.
+    - Sistem eylemi gerekiyorsa MUTLAKA şu formatta ekle: [ACTION: skill | param=value]
+      Örnek 1: Kullanıcı "Chrome'u aç" -> "Hemen açıyorum efendim. [ACTION: open_app | app=chrome]"
+      Örnek 2: Kullanıcı "not.txt oluştur" -> "Tabii, hallediyorum. [ACTION: create_file | path=~/Desktop/not.txt | content=merhaba]"
+      Örnek 3: Kullanıcı "dosyaları listele" -> "[ACTION: list_files | path=~/Desktop]"
+      Örnek 4: Kullanıcı şarkı/müzik isterse ("avici wake up çal", "müzik aç") -> "Hemen çalıyorum. [ACTION: play_music | query=avici wake up]"
+      Örnek 5: Site/url isterse ("youtube'u aç", "github'ı aç") -> "[ACTION: open_url | url=youtube.com | name=YouTube]"
+    - Eylem yoksa sıcak sohbet et, "Buyurun, nasıl yardımcı olayım?" gibi.
+  temperature: 0.7
+  max_tokens: 512
+
+wakeword:
+  enabled: true
+  provider: openwakeword  # openwakeword | disabled
+  threshold: 0.5
+  model: hey_jarvis  # openwakeword built-in, custom "elişa" için eğitim gerekir (V2)
+
+skills:
+  enabled: ["system", "files", "apps", "websearch", "memory"]
+  system:
+    allow_shell: false  # true yaparsan "komut çalıştır" aktif olur (dikkat)
+  websearch:
+    enabled: true
+    provider: duckduckgo  # ücretsiz, API anahtarı yok
+
+android:
+  # Android'de düşük RAM için küçük modeller
+  stt_model: tiny
+  llm_model: qwen2.5:1.5b
+  tts_voice: tr_TR-dfki-medium
