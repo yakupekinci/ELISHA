@@ -40,6 +40,18 @@ let agentStatusEl = null;
 function setAgentStatus(t){
   statusText.textContent = t;
   hint.textContent = t;
+  const overlay = document.getElementById('agentOverlay');
+  const pill = document.getElementById('agentPill');
+  const text = document.getElementById('agentText');
+  if(t && t !== 'Hazır'){
+    overlay.classList.add('active');
+    pill.classList.remove('done');
+    text.textContent = t;
+  } else {
+    pill.classList.add('done');
+    text.textContent = '✅ Tamamlandı';
+    setTimeout(()=> overlay.classList.remove('active'), 2000);
+  }
 }
 function updateCnt(){
   const n = chat.querySelectorAll('.bubble').length;
