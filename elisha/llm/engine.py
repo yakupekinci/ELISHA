@@ -53,8 +53,8 @@ class LLMEngine:
             return response.content or "Bir şey diyemedim, tekrar eder misin?"
         except Exception as e:
             print(f"Provider hatası ({provider.name}): {e}")
-            # Fallback: başka provider dene
-            for name in ["ollama", "groq", "gemini"]:
+            # Fallback: akıllıdan aptal'a sıra (Groq > Gemini > Ollama)
+            for name in ["groq", "gemini", "ollama"]:
                 fallback = self.router._providers.get(name)
                 if fallback and fallback is not provider:
                     try:
@@ -66,7 +66,6 @@ class LLMEngine:
                             return response.content
                     except Exception:
                         continue
-            # Son çare: mock
             return self._chat_mock(self.history[-1]["content"] if self.history else "")
 
     def _chat_mock(self, user_text: str) -> str:
