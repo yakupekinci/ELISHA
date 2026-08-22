@@ -64,10 +64,22 @@ class FastPath:
         if re.search(r"\bunut\b", t):
             return self._forget(text)
 
-        # --- dosya silme (TAMAMEN YASAK — güvenlik politikası) ---
+        # --- dosya silme (HIGH risk → izin sistemi devreye girer) ---
         if re.search(r"\b(sil|kaldır|kaldir|siliver|silme)\b", t) and \
            re.search(r"(dosya|klasör|folder|file|dizin)|\.(?:txt|md|pdf|docx?|xlsx?|pptx?|csv|png|jpe?g|gif|heic|mp3|mp4|mov|zip)\b", t):
-            return "Dosya silme işlemi güvenlik politikası gereği devre dışı. Bu işlemi manuel olarak yapman gerekiyor."
+            m = re.search(
+                r"([\w\-À-ÿ ]*[\w\-À-ÿ]+\.(?:txt|md|pdf|docx?|xlsx?|pptx?|csv|png|jpe?g|gif|heic|mp3|mp4|mov|zip))",
+                text, re.I)
+            if m:
+                fname = m.group(1).strip()
+                fname = re.sub(r"^(masaüstündeki|masaustundeki|masaüstünde|masaustunde|masaüstü|masaustu|desktop|"
+                               r"indirilenlerdeki|indirilenlerde|indirilenler|belgelerdeki|belgelerde|belgeler)\s+",
+                               "", fname, flags=re.I).strip()
+                # HIGH risk → _run izin soracak (NeedConfirmation fırlatır)
+                r = self._run("delete_file", {"path": fname}, f"🗑️ {fname} siliniyor...")
+                return r.message if r.success else f"Silemedim: {r.error}"
+            # dosya adı belirtilmemiş ama genel silme isteği → agent'a bırak
+            return None
 
         # --- müzik/şarkı (uygulama açmadan önce) ---
         # DÜZELTME: "şarkı" veya "müzik" tek başına yeterli değil,

@@ -60,10 +60,9 @@ security:
   require_confirmation_for:
     - HIGH
     - CRITICAL
-  # Tamamen engellenen araçlar — LLM bunları göremez, çağıramaz, bilmez
-  blocked_tools:
-    - delete_file   # dosya silme KESİNLİKLE yasak
-    - run_shell     # shell komutu zaten disabled, ek güvenlik katmanı
+  # Tamamen engellenen araçlar — LLM bunları göremez, çağıramaz
+  blocked_tools: []
+  # Boş = hiçbir şey engellenmez, hepsi izin sistemiyle korunur
 
 wakeword:
   enabled: true
@@ -85,12 +84,11 @@ android:
   llm_model: qwen2.5:1.5b
   tts_voice: tr_TR-dfki-medium
 
-# AŞAMA 6: terminal komut aracı — VARSAYILAN KAPALI (güvenlik)
-# Açarsan sadece allowlist'teki komutlar çalışır, her seferinde onay ister.
+# Araç ayarları
 tools:
   run_shell:
-    enabled: false
-    allowlist: [ls, df, uptime, whoami, pwd, date]
+    enabled: true   # shell açık — ama CRITICAL seviye, her seferinde izin sorar
+    allowlist: [ls, df, uptime, whoami, pwd, date, cat, echo, mkdir, cp, mv, rm, open, brew, pip, python3, node, npm, git]
     timeout: 10
   delete_file:
-    enabled: false  # dosya silme devre dışı — açmak için true yap (ÖNERİLMEZ)
+    enabled: true   # dosya silme açık — HIGH seviye, her seferinde izin sorar
