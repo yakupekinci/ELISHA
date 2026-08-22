@@ -60,6 +60,10 @@ security:
   require_confirmation_for:
     - HIGH
     - CRITICAL
+  # Tamamen engellenen araçlar — LLM bunları göremez, çağıramaz, bilmez
+  blocked_tools:
+    - delete_file   # dosya silme KESİNLİKLE yasak
+    - run_shell     # shell komutu zaten disabled, ek güvenlik katmanı
 
 wakeword:
   enabled: true
@@ -88,3 +92,5 @@ tools:
     enabled: false
     allowlist: [ls, df, uptime, whoami, pwd, date]
     timeout: 10
+  delete_file:
+    enabled: false  # dosya silme devre dışı — açmak için true yap (ÖNERİLMEZ)

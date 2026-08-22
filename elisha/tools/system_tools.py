@@ -296,3 +296,79 @@ class OpenUrlTool(Tool):
                               message=f"{name or url} açılıyor.", data={"url": url})
         except Exception as e:
             return ToolResult(False, self.name, error=str(e))
+
+
+class GetLocationTool(Tool):
+    name = "get_location"
+    description = ("Kullanıcının bulunduğu konumu öğrenmek için kullanılır. IP tabanlı konum algılama yapar. "
+                   "Kullanıcı 'neredeyim', 'konumum ne', 'hangi şehirdeyim' gibi sorduğunda kullan. "
+                   "Parametre gerekmez. Şehir, ülke, koordinat ve zaman dilimi döndürür.")
+    parameters = {"type": "object", "properties": {}, "required": []}
+    risk_level = RiskLevel.SAFE
+
+    def execute(self, args: Dict[str, Any]) -> ToolResult:
+        """IP-based geolocation — ücretsiz, API key gereksiz."""
+        import urllib.request
+        import json as _json
+
+        try:
+            # 1) ip-api.com (ücretsiz, Türkçe şehir adları)
+            req = urllib.request.Request(
+                "http://ip-api.com/json/?fields=status,country,regionName,city,zip,lat,lon,timezone,query",
+                headers={"User-Agent": "ELISHA/4.0"}
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = _json.loads(resp.read().decode())
+
+            if data.get("status") != "success":
+                raise RuntimeError(f"ip-api hata: {data}")
+
+            city = data.get("city", "Bilinmeyen")
+            region = data.get("regionName", "")
+            country = data.get("country", "")
+            lat = data.get("lat", 0)
+            lon = data.get("lon", 0)
+            tz = data.get("timezone", "")
+            ip = data.get("query", "")
+
+            location_str = f"{city}, {region}, {country}" if region else f"{city}, {country}"
+
+            return ToolResult(True, self.name,
+                              message=f"Konumun: {location_str} (koordinat: {lat}, {lon})",
+                              data={
+                                  "city": city,
+                                  "region": region,
+                                  "country": country,
+                                  "lat": lat,
+                                  "lon": lon,
+                                  "timezone": tz,
+                                  "ip": ip,
+                                  "location": location_str,
+                              })
+        except Exception as e:
+            # Fallback: macOS CoreLocation dene (daha kesin ama izin gerektirir)
+            try:
+                result = subprocess.run(
+                    ["swift", "-e", """
+import CoreLocation
+import Foundation
+let mgr = CLLocationManager()
+mgr.requestWhenInUseAuthorization()
+let loc = mgr.location
+if let l = loc {
+    print("\\(l.coordinate.latitude),\\(l.coordinate.longitude)")
+} else {
+    print("UNAVAILABLE")
+}
+"""],
+                    capture_output=True, text=True, timeout=5
+                )
+                if result.stdout.strip() and result.stdout.strip() != "UNAVAILABLE":
+                    parts = result.stdout.strip().split(",")
+                    lat, lon = float(parts[0]), float(parts[1])
+                    return ToolResult(True, self.name,
+                                      message=f"GPS konumun: {lat}, {lon}",
+                                      data={"lat": lat, "lon": lon, "source": "corelocation"})
+            except Exception:
+                pass
+            return ToolResult(False, self.name, error=f"Konum alınamadı: {e}")

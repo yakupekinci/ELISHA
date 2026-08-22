@@ -64,18 +64,10 @@ class FastPath:
         if re.search(r"\bunut\b", t):
             return self._forget(text)
 
-        # --- dosya silme (HIGH risk -> _run onay sistemine düşürür) ---
-        if re.search(r"\b(sil|kaldır|kaldir|siliver)\b", t):
-            m = re.search(
-                r"([\w\-À-ÿ ]*[\w\-À-ÿ]+\.(?:txt|md|pdf|docx?|xlsx?|pptx?|csv|png|jpe?g|gif|heic|mp3|mp4|mov|zip))",
-                text, re.I)
-            if m:
-                fname = m.group(1).strip()
-                fname = re.sub(r"^(masaustundeki|masaustunde|masaustu|desktop|indirilenlerdeki|"
-                               r"indirilenlerde|indirilenler|belgelerdeki|belgelerde|belgeler)\s+",
-                               "", fname, flags=re.I).strip()
-                r = self._run("delete_file", {"path": fname}, f"🗑️ {fname} siliniyor...")
-                return r.message if r.success else f"Silmedim: {r.error}"
+        # --- dosya silme (TAMAMEN YASAK — güvenlik politikası) ---
+        if re.search(r"\b(sil|kaldır|kaldir|siliver|silme)\b", t) and \
+           re.search(r"(dosya|klasör|folder|file|dizin)|\.(?:txt|md|pdf|docx?|xlsx?|pptx?|csv|png|jpe?g|gif|heic|mp3|mp4|mov|zip)\b", t):
+            return "Dosya silme işlemi güvenlik politikası gereği devre dışı. Bu işlemi manuel olarak yapman gerekiyor."
 
         # --- müzik/şarkı (uygulama açmadan önce) ---
         # DÜZELTME: "şarkı" veya "müzik" tek başına yeterli değil,
@@ -171,6 +163,12 @@ class FastPath:
                 q = text
             r = self._run("web_search", {"query": q}, "🔍 İnternette arıyorum...")
             return r.message if r.success else f"Aramayı yapamadım: {r.error}"
+
+        # --- konum ---
+        if re.search(r"\b(konum|neredeyim|nerede\b|lokasyon|location|konumum)\b", t) or \
+           re.search(r"hangi\s+(şehir|ülke|semt|il|bölge)", t):
+            r = self._run("get_location", {}, "📍 Konumunu buluyorum...")
+            return r.message if r.success else f"Konumunu bulamadım: {r.error}"
 
         return None
 

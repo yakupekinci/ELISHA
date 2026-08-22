@@ -1,0 +1,14 @@
+#!/bin/bash
+SCRIPT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$SCRIPT_DIR"
+if [ -f "$HOME/.config/elisha/secrets.env" ]; then
+    set -a; source "$HOME/.config/elisha/secrets.env"; set +a
+fi
+if [ -f "$SCRIPT_DIR/venv/bin/activate" ]; then
+    source "$SCRIPT_DIR/venv/bin/activate"
+fi
+if command -v ollama &>/dev/null; then
+    ollama serve &>/dev/null &
+    sleep 1
+fi
+exec python3 app/desktop_app.py
