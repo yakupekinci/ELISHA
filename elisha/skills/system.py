@@ -106,17 +106,8 @@ class SystemSkill(BaseSkill):
             return f"Kapatılamadı: {e}"
 
     def _run_command(self, cmd: str) -> str:
-        if not self.allow_shell:
-            return "Shell komutları kapalı. config.yaml -> skills.system.allow_shell: true yap."
-        if not cmd:
-            return "Komut boş."
-        try:
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
-            out = (result.stdout or "") + (result.stderr or "")
-            out = out.strip()[:1000]  # limit
-            return out if out else "Komut çalıştı (çıktı yok)."
-        except Exception as e:
-            return f"Komut hatası: {e}"
+        # Güvenlik: Arbitrary shell komutu devre dışı — PermissionManager onayı gerektirir
+        return "Bu işlem onay gerektirir. Doğrudan shell komutu çalıştırma devre dışı."
 
     def _volume(self, action: str) -> str:
         system = platform.system()

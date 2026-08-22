@@ -32,16 +32,14 @@ tts:
   piper_model_path: ./voices/tr_TR-dfki-medium.onnx
 
 llm:
-  provider: auto  # auto | ollama | mock
+  provider: auto  # auto | ollama | groq | gemini | mock
+  # Auto sıralaması: groq (hızlı+akıllı) > gemini (iyi Türkçe) > ollama (yerel) > mock
   model: qwen2.5:7b
   fallback_model: qwen2.5:1.5b
-  # Alternatifler: qwen2.5:1.5b (düşük RAM), qwen2.5:3b, llama3.2:3b, gemma2:2b
   host: http://localhost:11434
-  system_prompt: |
-    Sen ELİŞA'sın — zeki, sıcak ve samimi bir kız asistan. Adın ELİŞA, kendini asla "yapay zeka" olarak tanıtma.
-    Kullanıcıyla "sen" diye konuş, asla "siz" değil. Türkçe düşün, Türkçe konuş.
-    Komutlarda: kısa + [ACTION: araç | param=değer]. Sohbette: gerçekten düşün, fikrni paylaş.
-    Asla "ELİŞA:" ile başlama. Asla soru sorma (komutlarda).
+  # Cloud modelleri (API key env variable'dan okunur, config'e yazılmaz)
+  groq_model: llama-3.3-70b-versatile    # GROQ_API_KEY env
+  gemini_model: gemini-2.0-flash         # GEMINI_API_KEY env
   temperature: 0.5
   max_tokens: 1500
 

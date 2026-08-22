@@ -10,6 +10,17 @@ from pathlib import Path
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
+# ── API anahtarlarını güvenli dosyadan yükle ───────────────────────────────
+_secrets_file = Path.home() / ".config" / "elisha" / "secrets.env"
+if _secrets_file.exists():
+    for line in _secrets_file.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, _, value = line.partition("=")
+            key, value = key.strip(), value.strip()
+            if key and value:
+                os.environ[key] = value
+
 # venv python'u tespit et (sistem Python yerine venv'in kendi Python'unu kullan)
 _VENV_PY = ROOT / "venv" / "bin" / "python3"
 PYTHON = str(_VENV_PY) if _VENV_PY.exists() else sys.executable
@@ -215,6 +226,7 @@ window = webview.create_window(
     "http://localhost:8765/fullscreen.html",
     width=_W, height=_H,
     frameless=True,
+    resizable=False,
     on_top=True,
     hidden=True,
     transparent=False,

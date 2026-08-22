@@ -62,10 +62,5 @@ class FilesSkill(BaseSkill):
         return f"{p} içinde {len(items)} öğe:\n" + "\n".join(lines)
 
     def _delete(self, path: str) -> str:
-        f = self._resolve(path)
-        if not f.exists():
-            return f"Dosya yok: {f}"
-        if f.is_dir():
-            return "Klasör silme kapalı (güvenlik)."
-        f.unlink()
-        return f"Silindi: {f}"
+        # Güvenlik: Silme işlemi PermissionManager onayı gerektirir
+        return "Bu işlem onay gerektirir. Dosya silme doğrudan yapılamaz."

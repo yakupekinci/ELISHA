@@ -124,7 +124,9 @@ class ElishaOrchestrator:
                                  on_status=self._emit_status,
                                  permissions=self.permissions)
         agent_cfg = self.config.get("agent", {}) or {}
-        if agent_cfg.get("enabled", True) and self.llm.provider == "ollama":
+        # Agent: tool calling destekleyen herhangi bir provider varsa aktif et
+        tool_provider = self.llm.router.get_provider(needs_tools=True)
+        if agent_cfg.get("enabled", True) and tool_provider:
             try:
                 from .agent import AgentLoop
                 self.agent = AgentLoop(
@@ -135,8 +137,9 @@ class ElishaOrchestrator:
                     on_status=self._emit_status,
                     permissions=self.permissions,
                     memory_store=self.memory,
+                    provider=tool_provider,
                 )
-                log("AGENT", f"🤖 açık ({len(registry.names())} araç, max {self.agent.max_steps} adım)")
+                log("AGENT", f"🤖 açık ({len(registry.names())} araç, max {self.agent.max_steps} adım, provider={tool_provider.name})")
             except Exception as e:
                 err(f"agent başlatılamadı, V1 fallback kullanılacak: {e}")
                 self.agent = None

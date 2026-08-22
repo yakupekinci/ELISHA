@@ -35,7 +35,8 @@ class AgentLoop:
                  registry: ToolRegistry,
                  on_status: Optional[Callable[[str], None]] = None,
                  permissions: Optional[PermissionManager] = None,
-                 memory_store=None):
+                 memory_store=None,
+                 provider=None):
         self.config = config
         self.host = llm_host
         self.model = llm_model
@@ -43,6 +44,7 @@ class AgentLoop:
         self.on_status = on_status or (lambda s: None)
         self.permissions = permissions or PermissionManager(config)
         self.memory = memory_store
+        self._provider = provider  # LLMProvider instance (Groq/Ollama/None)
         agent_cfg = config.get("agent", {}) or {}
         self.enabled = bool(agent_cfg.get("enabled", True))
         self.max_steps = int(agent_cfg.get("max_steps", 8))
@@ -145,6 +147,16 @@ class AgentLoop:
                 messages.append({"role": "tool", "content": result_text})
 
     def _chat(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]) -> Dict[str, Any]:
+        # Provider varsa onu kullan (Groq/Ollama), yoksa eski Ollama yoluna düş
+        if self._provider and self._provider.supports_tools:
+            response = self._provider.chat(
+                messages, tools=tools,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+            )
+            return {"content": response.content, "tool_calls": response.tool_calls or []}
+
+        # Fallback: doğrudan Ollama HTTP (eski yol)
         payload = {
             "model": self.model,
             "messages": messages,
