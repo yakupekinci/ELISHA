@@ -118,13 +118,14 @@ class ELISHABar(rumps.App):
 
 # ── Menü bar PNG ikonunu bul / oluştur ────────────────────────────────────
 def _get_icon() -> str | None:
-    """
-    Önce PNG dene, yoksa SVG'den oluşturmayı dene.
-    macOS 12+ NSImage SVG'yi doğrudan okuyabilir; rumps için PNG gerekli.
-    """
-    png = pathlib.Path(__file__).parent / "elisha_icon.png"
-    svg = pathlib.Path(__file__).parent / "elisha_icon.svg"
+    """Menü bar için küçük template icon."""
+    # Önce özel menubar ikonu dene (44x44, template uyumlu)
+    menubar_icon = pathlib.Path(__file__).parent / "menubar_icon.png"
+    if menubar_icon.exists():
+        return str(menubar_icon)
 
+    # Fallback: ana ikon
+    png = pathlib.Path(__file__).parent / "elisha_icon.png"
     if png.exists() and png.stat().st_size > 500:
         return str(png)
 
