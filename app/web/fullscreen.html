@@ -1795,49 +1795,35 @@
     var micStream = null;
     var animFrameId = null;
     var lastAmpTime = 0;
+    var _simAmpPhase = 0;
 
     function startMicVisual() {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
-      navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-        .then(function(stream) {
-          micStream = stream;
-          if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-          analyser = audioCtx.createAnalyser();
-          analyser.fftSize = 64;
-          analyser.smoothingTimeConstant = 0.7;
-          audioCtx.createMediaStreamSource(stream).connect(analyser);
-          animFrameId = requestAnimationFrame(updateAmpLoop);
-        }).catch(function() { /* no mic permission, ok */ });
+      // Mikrofon tarayıcıdan istenmez — Python/sounddevice server-side kaydeder.
+      // Simüle edilmiş amplitude animasyonu (izin popup'u yok)
+      if (animFrameId) return;
+      animFrameId = requestAnimationFrame(updateAmpLoop);
     }
 
     function stopMicVisual() {
       if (animFrameId) { cancelAnimationFrame(animFrameId); animFrameId = null; }
-      if (micStream) { micStream.getTracks().forEach(function(t) { t.stop(); }); micStream = null; }
       hud.style.setProperty("--amplitude", "1");
     }
 
     function updateAmpLoop(ts) {
-      if (!analyser) return;
-      // throttle to ~30fps for performance
+      // Throttle ~30fps
       if (ts - lastAmpTime < 33) {
         animFrameId = requestAnimationFrame(updateAmpLoop);
         return;
       }
       lastAmpTime = ts;
 
-      var data = new Uint8Array(analyser.frequencyBinCount);
-      analyser.getByteFrequencyData(data);
-      var sum = 0;
-      for (var i = 0; i < data.length; i++) sum += data[i];
-      var avg = sum / data.length / 255;
-      var scale = 1 + avg * 1.6;
-      if (scale > 2.2) scale = 2.2;
+      // Simüle sinüs dalgası — gerçek mikrofon olmadan pulsating görüntü
+      _simAmpPhase += 0.08;
+      var base = 0.18;
+      var wave = base + 0.12 * Math.sin(_simAmpPhase) + 0.06 * Math.sin(_simAmpPhase * 2.3);
+      var scale = 1 + wave * 1.4;
+      if (scale > 2.0) scale = 2.0;
       hud.style.setProperty("--amplitude", scale.toFixed(3));
-
-      if (currentState === STATE.LISTENING || currentState === STATE.USER_SPEAKING) {
-        if (avg > 0.08) setState(STATE.USER_SPEAKING);
-        else if (currentState === STATE.USER_SPEAKING) setState(STATE.LISTENING);
-      }
 
       animFrameId = requestAnimationFrame(updateAmpLoop);
     }
