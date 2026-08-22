@@ -154,16 +154,8 @@ subprocess.Popen(
     start_new_session=True)
 print("menü bar başladı")
 
-# ── Dock ikonunu gizle (macOS) ─────────────────────────────────────────────
-if sys.platform == "darwin":
-    try:
-        from Foundation import NSBundle
-        info = NSBundle.mainBundle().localizedInfoDictionary() or \
-               NSBundle.mainBundle().infoDictionary()
-        if info:
-            info["LSUIElement"] = "1"
-    except Exception:
-        pass
+# ── Dock ikonunu ayarla (macOS) ────────────────────────────────────────────
+# Not: NSApp ancak event loop başladıktan sonra mevcut, _post_start'ta ayarlanacak
 
 # ── Durum ──────────────────────────────────────────────────────────────────
 import webview
@@ -221,17 +213,31 @@ try:
 except Exception:
     _W, _H = 1440, 900
 
+# Splash: siyah ekran + yükleniyor animasyonu (beyaz sayfa olmasın)
+_SPLASH_HTML = """
+<html><head><style>
+html,body{margin:0;padding:0;width:100%;height:100%;background:#050510;overflow:hidden}
+.c{display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column}
+.eye{width:80px;height:80px;border-radius:50%;border:3px solid #00d4ff;animation:pulse 1.5s infinite;box-shadow:0 0 30px #00d4ff44}
+@keyframes pulse{0%,100%{opacity:0.4;transform:scale(0.95)}50%{opacity:1;transform:scale(1.05)}}
+.t{color:#6e7ea0;font-family:system-ui;margin-top:24px;font-size:14px}
+</style></head><body><div class="c"><div class="eye"></div><div class="t">ELİŞA yükleniyor...</div></div>
+<script>
+setTimeout(function(){window.location.href='http://localhost:8765/fullscreen.html'},800);
+</script></body></html>
+"""
+
 window = webview.create_window(
     "ELİŞA",
-    "http://localhost:8765/fullscreen.html",
+    html=_SPLASH_HTML,
     width=_W, height=_H,
     frameless=True,
     resizable=False,
     on_top=True,
-    hidden=True,
+    hidden=False,           # Dock'tan açılınca hemen görünsün
     transparent=False,
     easy_drag=False,
-    background_color="#050508",
+    background_color="#050510",  # Siyah arka plan (beyaz sayfa yok)
     js_api=ElishaApi(),
 )
 
@@ -302,14 +308,21 @@ threading.Thread(target=poll, daemon=True).start()
 
 print("✨ ELİŞA gizli modda — menü çubuğundaki ikona bas veya 'hey elişa uyan' de")
 
-# ── Dock gizle (pywebview başladıktan sonra) ───────────────────────────────
+# ── Dock gizle KALDIRILDI — artık Dock'ta görünür, güzel ikonla ────────────
 def _post_start():
-    time.sleep(0.3)
-    try:
-        import AppKit
-        AppKit.NSApp.setActivationPolicy_(
-            AppKit.NSApplicationActivationPolicyAccessory)
-    except Exception:
-        pass
+    time.sleep(0.5)
+    # Dock ikonu ayarla (NSApp artık mevcut)
+    if sys.platform == "darwin":
+        try:
+            import AppKit
+            # Dock'ta ELİŞA ikonu göster (Python/roket ikonu yerine)
+            icon_path = str(ROOT / "app" / "elisha_icon.icns")
+            if Path(icon_path).exists():
+                icon = AppKit.NSImage.alloc().initWithContentsOfFile_(icon_path)
+                if icon and AppKit.NSApp:
+                    AppKit.NSApp.setApplicationIconImage_(icon)
+                    print("✅ Dock ikonu ayarlandı")
+        except Exception as e:
+            print(f"Dock ikon: {e}")
 
 webview.start(func=_post_start, debug=False)
