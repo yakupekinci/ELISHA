@@ -95,9 +95,16 @@ def _play_chime(kind: str = "wake"):
 # Whisper gürültüyü video altyazısı gibi yanlış tanır — bu listedekiler filtrelenir.
 # NOT: Türkçe gerçek kelimeler buraya EKLENMEMELİ — yanlış silinir.
 _STT_HALLUCINATIONS = {
+    # İngilizce hallucination
     "subtitle", "sub", "thanks", "thank you", "bye", "goodbye",
+    "like", "subscribe", "follow", "share", "comment",
+    "you", "the", "and", "is", "it", "this",
+    # Türkçe hallucination (gerçek komut DEĞİL, sadece gürültü çıktısı)
     "abone ol", "beğen", "altyazı", "çeviri", "video", "izleyin",
-    "like", "subscribe", "follow",
+    "abone olun", "beğenin", "paylaşın", "bildirimi açın",
+    "kanala abone", "videoyu beğen",
+    # Tekrarlayan saçmalık
+    "...", "…", "♪", "♫", "🎵",
 }
 
 def _is_hallucination(text: str) -> bool:
@@ -107,6 +114,22 @@ def _is_hallucination(text: str) -> bool:
         return True
     # Çok kısa veya sadece noktalama
     if len(t) < 2:
+        return True
+    # Tamamen İngilizce ve kısa (Türkçe bekliyoruz)
+    import re
+    if len(t) < 15 and re.match(r'^[a-z\s.,!?\']+$', t) and not re.search(r'[şçğıöüŞÇĞİÖÜ]', text):
+        # Sadece ASCII ve Türkçe özel karakter yok = muhtemelen İngilizce hallucination
+        # Ama bilinen komutlar ve Türkçe ASCII kelimeler hariç
+        _ALLOWED_EN = {"open", "close", "play", "stop", "search", "hey elisha"}
+        _TURKISH_ASCII = {"merhaba", "selam", "tamam", "evet", "hayir", "saat", "naber",
+                          "hey elisa", "elisa", "nasil", "tesekkur", "sagol"}
+        if t in _TURKISH_ASCII or any(w in t for w in _TURKISH_ASCII):
+            return False
+        if t not in _ALLOWED_EN and not any(w in t for w in _ALLOWED_EN):
+            return True
+    # Tekrarlayan pattern (aynı kelime 3+ kez)
+    words = t.split()
+    if len(words) >= 3 and len(set(words)) == 1:
         return True
     return False
 
@@ -140,21 +163,30 @@ def _do_listen(rid: str, duration: float):
 
     try:
         model = _get_whisper()
+        from elisha.stt.engine import INITIAL_PROMPT_TR, _normalize_audio, _post_process_turkish
         import warnings
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
+            # Audio normalize (sessiz/yüksek kayıtları düzelt)
+            audio_f = _normalize_audio(audio)
             segs, info = model.transcribe(
-                audio.astype(np.float32) / 32768.,
+                audio_f,
                 language="tr",
                 vad_filter=False,          # kendi VAD'ımız zaten sesi ayıkladı
-                beam_size=5,               # daha iyi Türkçe tanıma
+                beam_size=5,
+                best_of=3,
+                patience=1.5,
                 temperature=0.0,           # deterministik
-                initial_prompt="Türkçe: saat kaç, hava durumu, dosya aç, müzik çal, chrome aç.",
-                no_speech_threshold=0.3,   # daha permissive
+                initial_prompt=INITIAL_PROMPT_TR,
+                no_speech_threshold=0.4,
+                log_prob_threshold=-0.8,
                 condition_on_previous_text=False,
+                compression_ratio_threshold=2.4,
                 word_timestamps=False,
             )
         text = " ".join(s.text for s in segs).strip()
+        # Post-processing: bilinen Türkçe hatalarını düzelt
+        text = _post_process_turkish(text)
         log("STT", f"transkripsiyon: {text!r}  (lang={info.language} conf={info.language_probability:.2f})")
         # Hallucination filtresi
         if _is_hallucination(text):
