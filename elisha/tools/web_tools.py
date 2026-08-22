@@ -1,7 +1,35 @@
 import re
+import ssl
 from typing import Any, Dict
 
 from .base import Tool, ToolResult, RiskLevel
+
+
+def _patch_ddgs_tls():
+    """LibreSSL 2.8.3 TLS 1.3 desteklemiyor — ddgs'nin TLSv1_3 minimum_version kullanmasını engelle."""
+    try:
+        import ddgs.http_client2 as _hc
+        import inspect, types
+        src = inspect.getsource(_hc._get_random_ssl_context)
+        if "TLSv1_3" not in src:
+            return  # zaten yamanlı
+        # Yeni versiyon: TLSv1_3 olmadan
+        def _get_random_ssl_context_patched(verify):
+            import random as _r
+            ctx = ssl.create_default_context(cafile=verify if isinstance(verify, str) else None)
+            commands = [
+                lambda c: None,
+                lambda c: setattr(c, "maximum_version", ssl.TLSVersion.TLSv1_2),
+                lambda c: setattr(c, "options", c.options | ssl.OP_NO_TICKET),
+            ]
+            _r.choice(commands)(ctx)
+            return ctx
+        _hc._get_random_ssl_context = _get_random_ssl_context_patched
+    except Exception:
+        pass
+
+
+_patch_ddgs_tls()
 
 
 class WebSearchTool(Tool):

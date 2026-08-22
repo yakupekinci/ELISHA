@@ -10,7 +10,7 @@ class LLMEngine:
         self.fallback_model = config.get("llm", {}).get("fallback_model", "qwen2.5:1.5b")
         self.host = config.get("llm", {}).get("host", "http://localhost:11434")
         self.system_prompt = config.get("llm", {}).get("system_prompt", PERSONA_TR) + "\n" + SKILL_PROMPT_TR
-        self.temperature = config.get("llm", {}).get("temperature", 0.7)
+        self.temperature = config.get("llm", {}).get("temperature", 0.3)  # 0.7→0.3: daha tutarlı
         self.max_tokens = config.get("llm", {}).get("max_tokens", 512)
         self.history = []
         self._init_engine()
@@ -56,23 +56,11 @@ class LLMEngine:
             return False
 
     def chat(self, user_text: str) -> str:
-        # Saat/tarih gibi kesin bilgiler için LLM'i atla, gerçek zamanı döndür
-        t_low = user_text.lower()
-        if any(k in t_low for k in ["saat kaç", "tarih ne", "günlerden ne"]):
-            import datetime
-            now = datetime.datetime.now().strftime("%H:%M, %d %B %Y")
-            resp = f"Şu an saat {now}."
-            self.history.append({"role": "user", "content": user_text})
-            self.history.append({"role": "assistant", "content": resp})
-            if len(self.history) > 10:
-                self.history = self.history[-10:]
-            return resp
-
         # geçmişe ekle
         self.history.append({"role": "user", "content": user_text})
-        # keep last 10 turns
-        if len(self.history) > 10:
-            self.history = self.history[-10:]
+        # son 30 mesajı tut (15 alışveriş = daha uzun sohbet bağlamı)
+        if len(self.history) > 30:
+            self.history = self.history[-30:]
 
         if self.provider == "ollama":
             resp = self._chat_ollama(user_text)
@@ -138,9 +126,10 @@ class LLMEngine:
                     content = "ELİŞA tarafından oluşturuldu"
             return f"Tabii, dosyayı oluşturuyorum. [ACTION: create_file | path={path} | content={content}]"
 
-        # 2) Müzik/şarkı çal (uygulama aç'dan ÖNCE)
-        if any(w in t for w in ["çal", "şarkı", "müzik", "sarki", "muzik", "music", "play"]):
-            # uygulama adı geçiyorsa (spotify) ona bırak
+        # 2) Müzik/şarkı çal — SADECE açık istek (tek başına "şarkı" veya "müzik" yetmez)
+        _music_nouns = any(w in t for w in ["şarkı", "sarki", "müzik", "muzik", "music"])
+        _music_verbs = any(w in t for w in ["çal", "oynat", "başlat"])
+        if _music_nouns and _music_verbs:
             if not any(a in t for a in ["spotify", "chrome", "safari"]):
                 import re as _re
                 q = _re.sub(r"\b(elişa|eleşa|elisha|hey|çal|oynat|başlat|bir|şarkı|sarki|müzik|muzik|aç)\b", "", user_text, flags=_re.I).strip(" ,.")

@@ -114,9 +114,16 @@ class WakeWordDetector:
                 audio_f = audio.astype(np.float32) / 32768.0
             else:
                 audio_f = audio
-            for lang in ["en", "tr", None]:
+            for lang in ["tr", "en", None]:
                 try:
-                    segments, info = self._stt_wake.transcribe(audio_f, language=lang, vad_filter=True, beam_size=1)
+                    segments, info = self._stt_wake.transcribe(
+                        audio_f,
+                        language=lang,
+                        vad_filter=False,
+                        beam_size=3,
+                        no_speech_threshold=0.3,
+                        temperature=0.0,
+                    )
                     text = " ".join([s.text for s in segments]).strip().lower()
                     if not text:
                         continue

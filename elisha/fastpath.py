@@ -41,6 +41,19 @@ class FastPath:
         if not t:
             return None
 
+        # --- kimlik soruları (LLM'e gitmeden tutarlı cevap) ---
+        _kimlik = re.search(
+            r"\b(kimsin|kim(dir)?sin|adın ne|ismin ne|seni kim (yaptı|oluşturdu|programladı|geliştirdi|kurdu)|kim (yaptı|kurdu|geliştirdi) seni|nasıl (yapıldın|oluşturuldun))\b",
+            t
+        )
+        if _kimlik:
+            return "Ben ELİŞA — sana yardımcı olmak için yapılmış Türkçe bir sesli asistanım. Bir yazılımcı tarafından tamamen yerel olarak çalışacak şekilde geliştirildi."
+
+        # --- ne yapabilirsin ---
+        if re.search(r"\b(ne yapabilir?sin|neler yapabilir?sin|yeteneklerin|yardım edebilir misin)\b", t):
+            return ("Saat/tarih söylerim, dosya açar/oluştururum, uygulama başlatırım, "
+                    "müzik çalarım, internette araştırma yaparım, ve seninle sohbet ederim!")
+
         # --- dosya oluştur (müzik/uygulama kurallarından ÖNCE) ---
         if self._is_create_file(t):
             return self._create_file(t)
@@ -65,9 +78,18 @@ class FastPath:
                 return r.message if r.success else f"Silmedim: {r.error}"
 
         # --- müzik/şarkı (uygulama açmadan önce) ---
-        if any(w in t for w in ["çal ", " çal", "çalar", "oynat", "şarkı", "sarki", "müzik", "muzik", "dinle"]):
-            if not any(a in t for a in ["spotify uygulaması", "chrome", "safari", "ses seviyesi"]):
-                return self._music(text)
+        # DÜZELTME: "şarkı" veya "müzik" tek başına yeterli değil,
+        # mutlaka bir fiil eşliğinde olmalı ("çal", "oynat", "dinle" gibi)
+        _MUSIC_NOUNS = {"şarkı", "sarki", "müzik", "muzik", "music"}
+        _MUSIC_VERBS = {"çal", "oynat", "dinle", "aç", "başlat"}
+        _has_noun = any(w in t for w in _MUSIC_NOUNS)
+        _has_verb = any(w in t for w in _MUSIC_VERBS)
+        # Sadece spotify/chrome/safari yoksa ve hem fiil hem isim varsa
+        if _has_noun and _has_verb and not any(a in t for a in ["spotify uygulaması", "chrome", "safari", "ses seviyesi"]):
+            return self._music(text)
+        # "çal [şarkı adı]" veya "oynat [şarkı]" — kısa form, isim olmasa bile
+        if re.search(r"^(çal|oynat)\s+\w", t) and not any(a in t for a in ["chrome", "safari"]):
+            return self._music(text)
 
         # --- bilinen site/url aç ---
         m = re.search(r"(youtube|github|twitter|x\.com|instagram|netflix|hürriyet|milliyet)", t)
@@ -115,11 +137,13 @@ class FastPath:
             r = self._run("take_screenshot", {}, "📸 Ekran görüntüsü alıyorum...")
             return r.message if r.success else f"Ekran görüntüsü alamadım: {r.error}"
 
-        # --- saat / tarih ---
+        # --- saat / tarih --- (sadece doğrudan sorgular, sohbet cümleleri değil)
         if re.search(r"\bsaat(ki|ı)?\b.{0,12}\b(kaç|kac|söyle|öğren)\b|saat kaç", t) and "zaman" not in t:
             r = self._run("get_time", {}, "🕐 Saate bakıyorum...")
             return r.message if r.success else "Saati öğrenemedim."
-        if re.search(r"(bugün|tarih|günlerden|hangi gün|ayın kaç[iı]?|ne gün)", t):
+        # Tarih: sadece "tarih" veya "bugün ne gün" / "günlerden" gibi net tarih soruları
+        if re.search(r"\b(tarih|günlerden|hangi gün|ayın kaç[iı]?|ne gün(dür)?)\b", t) or \
+           re.search(r"\bbugün\b.{0,10}\b(kaç[iı]?|ne gün|hangi|tarih)\b", t):
             r = self._run("get_date", {}, "📅 Tarihe bakıyorum...")
             return r.message if r.success else "Tarihi öğrenemedim."
 
@@ -135,9 +159,10 @@ class FastPath:
             return r.message if r.success else f"Listeleyemedim: {r.error}"
 
         # --- web arama (en sonda: site/müzik/uygulama kurallarına çarpmasın) ---
+        # NOT: "nedir"/"kimdir" gibi bilgi soruları agent'a bırakılıyor (LLM cevaplar/arar)
         if any(w in t for w in ["hava durumu", "havadurumu", "hava nasıl", "haber",
-                                "nedir", "kimdir", "kaç para", "döviz", "borsa"]) or \
-           ("ara" in t and len(t.split()) <= 7 and "şarkı" not in t):
+                                "kaç para", "döviz", "borsa"]) or \
+           (re.search(r"\bara\b", t) and len(t.split()) <= 7 and "şarkı" not in t):
             q = re.sub(r"\b(elişa|eleşa|elisha|hey)\b", "", text, flags=re.I).strip(" ,.")
             q = re.sub(r"^\s*(internette|google'da|googleda|webde)\s+", "", q, flags=re.I)
             q = re.sub(r"^\s*ara\s+", "", q, flags=re.I)

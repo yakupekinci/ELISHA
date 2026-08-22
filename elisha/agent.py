@@ -46,8 +46,8 @@ class AgentLoop:
         agent_cfg = config.get("agent", {}) or {}
         self.enabled = bool(agent_cfg.get("enabled", True))
         self.max_steps = int(agent_cfg.get("max_steps", 8))
-        self.temperature = float((config.get("llm", {}) or {}).get("temperature", 0.7))
-        self.max_tokens = int((config.get("llm", {}) or {}).get("max_tokens", 512))
+        self.temperature = float((config.get("llm", {}) or {}).get("temperature", 0.5))
+        self.max_tokens = int((config.get("llm", {}) or {}).get("max_tokens", 1500))
         self.system_prompt = ((config.get("llm", {}) or {}).get("agent_system_prompt")
                               or AGENT_PROMPT_TR)
 

@@ -58,7 +58,17 @@ class STTEngine:
                     audio_f = audio.astype(np.float32) / 32768.0
                 else:
                     audio_f = audio
-                segments, info = self._engine.transcribe(audio_f, language=self.language, vad_filter=True)
+                segments, info = self._engine.transcribe(
+                    audio_f,
+                    language=self.language,
+                    vad_filter=False,           # dışarıda zaten VAD var
+                    beam_size=5,
+                    best_of=5,
+                    temperature=0.0,
+                    initial_prompt="Türkçe: saat kaç, hava durumu, dosya aç, müzik çal.",
+                    no_speech_threshold=0.3,
+                    condition_on_previous_text=False,
+                )
                 text = " ".join([s.text for s in segments]).strip()
                 return text
             elif self.provider == "whisper":

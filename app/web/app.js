@@ -167,50 +167,70 @@ function fallbackSpeak(t){
 sendBtn.onclick = ()=> sendText(input.value);
 input.addEventListener('keydown', e=>{ if(e.key==='Enter') sendText(input.value); });
 
-// ---- MIC: %100 OFFLINE (MediaRecorder -> /api/stt -> local whisper) ----
-micBtn.onclick = async ()=>{
-  if(listening){ // ikinci tık = iptal
-    try{ mediaRecorder && mediaRecorder.state!=='inactive' && mediaRecorder.stop(); }catch{}
+// ---- MIC: Python sounddevice üzerinden kayıt (/api/listen) ----
+// Tarayıcı getUserMedia yerine Python process'in mikrofon erişimi kullanılır.
+// Bu sayede pywebview içinde izin sorunu olmaz.
+micBtn.onclick = async () => {
+  if (listening) {
+    // İkinci tık = iptal (kayıt zaten sunucu tarafında sürüyor, sadece UI'ı sıfırla)
+    listening = false;
+    micBtn.textContent = '🎙️ Dinle'; micBtn.style.background = '';
+    hint.textContent = 'İptal edildi'; setOrb(wakeOn ? '' : '');
     return;
   }
-  try{
-    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
-    listening = true;
-    micBtn.textContent='⏹ Dinliyorum...'; micBtn.style.background='linear-gradient(135deg,#ff2e97,#a855f7)';
-    hint.textContent='Dinliyorum... konuş ve dur'; setOrb('listening');
 
-    mediaRecorder = new MediaRecorder(stream);
-    audioChunks = [];
-    mediaRecorder.ondataavailable = e=>{ if(e.data.size>0) audioChunks.push(e.data); };
-    mediaRecorder.onstop = async ()=>{
-      stream.getTracks().forEach(t=>t.stop());
-      micBtn.textContent='🎙️ Dinle'; micBtn.style.background='';
-      const blob = new Blob(audioChunks, {type: mediaRecorder.mimeType || 'audio/webm'});
-      if(blob.size < 2000){ listening=false; hint.textContent='Ses çok kısa'; setOrb(wakeOn?'':''); return; }
-      hint.textContent='Anlıyorum... (local whisper)';
-      setOrb('thinking');
-      try{
-        const r = await fetch('/api/stt', {method:'POST', headers:{'Content-Type': blob.type}, body: blob});
-        const j = await r.json();
-        const txt = (j.text||'').trim();
-        listening=false;
-        if(txt){
-          addBubble('(ses) '+txt, 'user');
-          sendText(txt);
-        }else{
-          hint.textContent='Ses anlaşılmadı, tekrar dene'; setOrb(wakeOn?'':'');
-        }
-      }catch(e){
-        listening=false; hint.textContent='STT hatası: '+e.message; setOrb(wakeOn?'':'');
-      }
-    };
-    // max 8sn otomatik kes
-    mediaRecorder.start();
-    setTimeout(()=>{ if(mediaRecorder && mediaRecorder.state==='recording') mediaRecorder.stop(); }, 8000);
-  }catch(e){
-    listening=false;
-    addSys('Mikrofon izni gerek: '+e.message);
-    hint.textContent='Mikrofon izni ver';
+  listening = true;
+  micBtn.textContent = '⏹ Dinliyorum...';
+  micBtn.style.background = 'linear-gradient(135deg,#ff2e97,#a855f7)';
+  hint.textContent = 'Dinliyorum... konuş ve dur';
+  setOrb('listening');
+
+  try {
+    // 1. Kaydı başlat (server-side sounddevice + VAD)
+    const startRes = await fetch('/api/listen', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ duration: 6 })
+    });
+    if (!startRes.ok) throw new Error('listen başlatılamadı: ' + startRes.status);
+    const { id } = await startRes.json();
+
+    // 2. Sonucu poll et (max 12sn)
+    hint.textContent = 'Kaydediyor...';
+    let result = null;
+    for (let i = 0; i < 40; i++) {
+      await new Promise(r => setTimeout(r, 300));
+      const pollRes = await fetch('/api/listen/result', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+      if (!pollRes.ok) break;
+      const job = await pollRes.json();
+      if (job.status === 'done') { result = job; break; }
+    }
+
+    listening = false;
+    micBtn.textContent = '🎙️ Dinle'; micBtn.style.background = '';
+
+    if (!result) {
+      hint.textContent = 'Zaman aşımı'; setOrb(wakeOn ? '' : ''); return;
+    }
+    if (result.error) {
+      hint.textContent = 'Hata: ' + result.error; setOrb(wakeOn ? '' : ''); return;
+    }
+    if (result.silent || !result.text) {
+      hint.textContent = 'Ses anlaşılmadı, tekrar dene'; setOrb(wakeOn ? '' : ''); return;
+    }
+
+    const txt = result.text.trim();
+    addBubble('🎙 ' + txt, 'user');
+    sendText(txt);
+
+  } catch (e) {
+    listening = false;
+    micBtn.textContent = '🎙️ Dinle'; micBtn.style.background = '';
+    hint.textContent = 'Hata: ' + e.message; setOrb(wakeOn ? '' : '');
   }
 };
 

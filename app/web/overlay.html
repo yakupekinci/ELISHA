@@ -861,14 +861,20 @@
       }
       fetchStatus(); setInterval(fetchStatus, 15000);
 
-      // External wake (wake daemon)
+      // External wake (wake daemon / desktop_app.py)
       window.ELISHA_EXTERNAL_WAKE = function(reason) {
         setMode("listening");
-        appendMessage("bot", "Efendim?");
+        appendMessage("bot", "Dinliyorum…");
       };
 
-      // Keep alive
-      setInterval(function() { try { pywebview.api.keep_alive(); } catch(e) {} }, 5000);
+      // Keep alive — pywebview 60sn auto-hide timer'ını sıfırla
+      setInterval(function() {
+        try { pywebview.api.keep_alive(); } catch(e) {}
+      }, 5000);
+
+      // Fullscreen link düzeltmesi
+      var fsBtn = document.querySelector("[data-od-id='hint-text']");
+      if (fsBtn) fsBtn.textContent = "✦ tıkla veya seslen";
     })();
   </script>
 </body>

@@ -1,6 +1,56 @@
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# macOS
 .DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+
+# Logs
 *.log
+/tmp/
+
+# Kullanıcı verisi (kişisel konuşmalar)
 data/*.db
-voices/
+data/*.db-journal
+data/*.db-wal
+
+# Ses modelleri (büyük binary dosyalar, ayrı indirilmeli)
+voices/*.onnx
+voices/*.onnx.json
+
+# Geçici dosyalar
+*.wav
+*.tmp
+*.bak
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Ortam değişkenleri
+.env
+.env.local
+config.local.yaml
+
+# Piper cache
+piper_cache/

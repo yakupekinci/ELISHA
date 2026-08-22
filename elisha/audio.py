@@ -28,34 +28,51 @@ def record_until_silence(
     """
     if not HAS_SOUNDDEVICE:
         raise RuntimeError("sounddevice kurulu değil")
-    vad = webrtcvad.Vad(vad_aggressiveness)
-    frame_samples = int(sample_rate * frame_ms / 1000)
-    num_silence_frames = int(silence_ms / frame_ms)
 
-    # ring buffer
-    ring = collections.deque(maxlen=num_silence_frames)
+    # Agresiflik 1 = daha az katı (2-3 çok fazla gürültü filtreler)
+    _agg = min(vad_aggressiveness, 1)
+    vad = webrtcvad.Vad(_agg)
+    frame_samples = int(sample_rate * frame_ms / 1000)
+    num_silence_frames = int(silence_ms / frame_ms)  # kaç frame sessizlik = konuşma bitti
+
+    # küçük pre-buffer: konuşma başlangıcını kaçırma (300ms = 10 frame)
+    PRE_BUF = 10
+    ring = collections.deque(maxlen=PRE_BUF)
     triggered = False
     voiced_frames = []
     silence_frames = 0
 
-    print("🎙️ Dinliyorum... konuş (sessizlikte duracak)")
+    print("🎙️ Dinliyorum... konuş")
 
-    # sounddevice callback-less blocking read
     with sd.InputStream(samplerate=sample_rate, channels=1, dtype="int16", blocksize=frame_samples) as stream:
         for _ in range(int(max_seconds * 1000 / frame_ms)):
             data, overflowed = stream.read(frame_samples)
             if overflowed:
                 continue
             pcm = data.tobytes()
-            # webrtcvad expects 10/20/30ms frames, 16k mono PCM16
-            is_speech = vad.is_speech(pcm, sample_rate)
+            raw = np.frombuffer(pcm, dtype=np.int16)
+            energy = np.abs(raw).mean()
+
+            # Çok sessizse (arka plan gürültüsü ~0-80) → kesinlikle sessizlik
+            if energy < 80:
+                is_speech = False
+            # Güçlü konuşma sesi (MacBook Air ~200+) → kesinlikle konuşma
+            elif energy > 200:
+                is_speech = True
+            else:
+                # Orta bölge (80-200): VAD'a bırak
+                try:
+                    is_speech = vad.is_speech(pcm, sample_rate)
+                except Exception:
+                    is_speech = energy > 150
+
             if not triggered:
                 ring.append((pcm, is_speech))
-                num_voiced = len([f for f, s in ring if s])
-                if num_voiced > 0.9 * ring.maxlen:
+                # 30% speech → kayda başla
+                num_voiced = sum(1 for _, s in ring if s)
+                if num_voiced >= max(1, int(0.3 * ring.maxlen)):
                     triggered = True
-                    # flush ring
-                    for f, s in ring:
+                    for f, _ in ring:
                         voiced_frames.append(f)
                     ring.clear()
             else:

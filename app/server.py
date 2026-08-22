@@ -15,6 +15,153 @@ from elisha.log import log, err
 PORT = 8765
 WEB_DIR = Path(__file__).parent / "web"
 
+# ---------- Listen jobs (async mic kayıt) ----------
+_listen_jobs: dict = {}   # rid -> {status, text, silent, error}
+_whisper_model = None
+_whisper_lock = threading.Lock()
+
+def _get_whisper():
+    global _whisper_model
+    with _whisper_lock:
+        if _whisper_model is None:
+            from faster_whisper import WhisperModel
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                _whisper_model = WhisperModel("small", device="cpu", compute_type="int8")
+    return _whisper_model
+
+# ── Uyarı sesleri (afplay ile anlık) ──────────────────────────
+_CHIME_WAKE_PATH = None
+_CHIME_RESP_PATH = None
+_CHIME_LOCK = threading.Lock()
+
+def _build_chime(freqs, durations, sr=22050, vol=0.28):
+    """Kısa bir bip sesi üret; freqs/durations listesi = ardışık tonlar."""
+    import numpy as np
+    chunks = []
+    for freq, dur in zip(freqs, durations):
+        n = int(sr * dur)
+        t = np.linspace(0, dur, n)
+        tone = np.sin(2 * np.pi * freq * t).astype(np.float32) * vol
+        # yumuşak başlangıç/bitiş zarfı
+        fade = min(int(0.015 * sr), n // 4)
+        tone[:fade]  *= np.linspace(0, 1, fade)
+        tone[-fade:] *= np.linspace(1, 0, fade)
+        chunks.append(tone)
+    return np.concatenate(chunks)
+
+def _get_chime(kind: str) -> str:
+    """Chime WAV dosyasını oluştur/cache'le."""
+    global _CHIME_WAKE_PATH, _CHIME_RESP_PATH
+    import numpy as np, soundfile as sf, tempfile
+    with _CHIME_LOCK:
+        path_attr = "_CHIME_WAKE_PATH" if kind == "wake" else "_CHIME_RESP_PATH"
+        cached = _CHIME_WAKE_PATH if kind == "wake" else _CHIME_RESP_PATH
+        if cached and Path(cached).exists():
+            return cached
+        sr = 22050
+        if kind == "wake":
+            # İki kısa yükselen ton: "dinliyorum" hissi
+            audio = _build_chime([660, 880], [0.08, 0.10], sr=sr, vol=0.22)
+        else:
+            # Tek yumuşak alçalan ton: "cevap veriyorum" hissi
+            audio = _build_chime([550, 440], [0.07, 0.09], sr=sr, vol=0.18)
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
+            sf.write(tf.name, audio, sr)
+            p = tf.name
+        if kind == "wake":
+            _CHIME_WAKE_PATH = p
+        else:
+            _CHIME_RESP_PATH = p
+    return p
+
+def _play_chime(kind: str = "wake"):
+    """Chime'ı arka planda çal — bloklama yok."""
+    try:
+        import subprocess as _sp
+        p = _get_chime(kind)
+        _sp.Popen(["afplay", "-v", "0.55", p],
+                  stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+    except Exception as e:
+        log("CHIME", f"çalınamadı: {e}")
+
+# ── STT hallucination blacklist ──────────────────────────────
+# Whisper gürültüyü video altyazısı gibi yanlış tanır — bu listedekiler filtrelenir.
+# NOT: Türkçe gerçek kelimeler buraya EKLENMEMELİ — yanlış silinir.
+_STT_HALLUCINATIONS = {
+    "subtitle", "sub", "thanks", "thank you", "bye", "goodbye",
+    "abone ol", "beğen", "altyazı", "çeviri", "video", "izleyin",
+    "like", "subscribe", "follow",
+}
+
+def _is_hallucination(text: str) -> bool:
+    """Whisper'ın arka plan gürültüsünü şarkı/altyazı gibi yanlış tanıması."""
+    t = text.lower().strip().rstrip(".")
+    if t in _STT_HALLUCINATIONS:
+        return True
+    # Çok kısa veya sadece noktalama
+    if len(t) < 2:
+        return True
+    return False
+
+def _do_listen(rid: str, duration: float):
+    import numpy as np
+    # Anında uyarı sesi: "dinliyorum" hissi
+    _play_chime("wake")
+
+    try:
+        # VAD tabanlı kayıt: konuşma bitince durur (fixed-duration yerine)
+        from elisha.audio import record_until_silence
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            audio = record_until_silence(
+                sample_rate=16000,
+                vad_aggressiveness=1,      # daha az katı (2→1)
+                silence_ms=900,
+                max_seconds=int(duration),
+            )
+    except Exception as e:
+        _listen_jobs[rid] = {"status": "done", "error": f"mic: {e}"}
+        return
+
+    mean_level = int(np.abs(audio).mean()) if len(audio) > 0 else 0
+    log("STT", f"kayıt: {len(audio)/16000:.1f}sn  seviye={mean_level}")
+
+    if len(audio) == 0 or mean_level < 50:
+        _listen_jobs[rid] = {"status": "done", "text": "", "silent": True}
+        return
+
+    try:
+        model = _get_whisper()
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            segs, info = model.transcribe(
+                audio.astype(np.float32) / 32768.,
+                language="tr",
+                vad_filter=False,          # kendi VAD'ımız zaten sesi ayıkladı
+                beam_size=5,               # daha iyi Türkçe tanıma
+                temperature=0.0,           # deterministik
+                initial_prompt="Türkçe: saat kaç, hava durumu, dosya aç, müzik çal, chrome aç.",
+                no_speech_threshold=0.3,   # daha permissive
+                condition_on_previous_text=False,
+                word_timestamps=False,
+            )
+        text = " ".join(s.text for s in segs).strip()
+        log("STT", f"transkripsiyon: {text!r}  (lang={info.language} conf={info.language_probability:.2f})")
+        # Hallucination filtresi
+        if _is_hallucination(text):
+            log("STT", f"hallucination atlandı: {text!r}")
+            _listen_jobs[rid] = {"status": "done", "text": "", "silent": True}
+            return
+        if len(text) > 300:
+            text = text[:300]
+        _listen_jobs[rid] = {"status": "done", "text": text}
+    except Exception as e:
+        _listen_jobs[rid] = {"status": "done", "error": f"stt: {e}"}
+
 # Aktif SSE istemciler (agent durum yayını)
 _sse_clients = set()
 _sse_lock = threading.Lock()
@@ -52,31 +199,46 @@ _chat_lock = threading.Lock()
 _tts_lock = threading.Lock()
 
 def _speak_async(text: str):
-    """Cevabı Piper ile sentezle, afplay ile çal (pywebview bypass)."""
+    """Cevabı seslendir: Piper (en iyi) → pyttsx3 (yedek)."""
     clean = text.strip()[:400]
-    # Araç mesajları, kısa cevaplar ve emoji'leri temizle
     import re as _re
     clean = _re.sub(r'\[ACTION:[^\]]+\]', '', clean).strip()
     if len(clean) < 2:
         return
+    # Cevap öncesi hafif uyarı sesi
+    _play_chime("response")
     with _tts_lock:
+        # 1. Piper dene
         try:
             import numpy as np, soundfile as sf, tempfile, subprocess as _sp
             voice = get_piper()
             chunks = list(voice.synthesize(clean))
-            if not chunks:
+            if chunks:
+                audio = np.concatenate([np.array(c.audio_float_array) for c in chunks])
+                sr = chunks[0].sample_rate
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
+                    wav_path = tf.name
+                    sf.write(wav_path, audio, sr)
+                _sp.run(["afplay", wav_path], stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+                from pathlib import Path as _P
+                try: _P(wav_path).unlink()
+                except: pass
                 return
-            audio = np.concatenate([np.array(c.audio_float_array) for c in chunks])
-            sr = chunks[0].sample_rate
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
-                wav_path = tf.name
-                sf.write(wav_path, audio, sr)
-            _sp.run(["afplay", wav_path], stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
-            from pathlib import Path as _P
-            try: _P(wav_path).unlink()
-            except: pass
+        except Exception:
+            pass  # Piper yok, pyttsx3'e düş
+        # 2. pyttsx3 yedek
+        try:
+            import pyttsx3
+            engine = pyttsx3.init()
+            voices = engine.getProperty('voices')
+            for v in voices:
+                if 'tr' in (v.languages[0] if v.languages else b'').lower() if hasattr(v.languages[0] if v.languages else b'', 'lower') else False:
+                    engine.setProperty('voice', v.id); break
+            engine.setProperty('rate', 180)
+            engine.say(clean)
+            engine.runAndWait()
         except Exception as e:
-            log("TTS", f"speak_async hata: {e}")
+            log("TTS", f"pyttsx3 hata: {e}")
 
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
@@ -142,6 +304,32 @@ class Handler(SimpleHTTPRequestHandler):
         ctype = self.headers.get("Content-Type", "")
 
         try:
+            if parsed.path == "/api/wake":
+                # ELISHAToggle.app veya web UI'dan gelen wake isteği
+                Path("/tmp/elisha_wake_enabled").write_text("1")
+                Path("/tmp/elisha_wake").write_text("api")
+                self._json(200, {"ok": True, "wake": True})
+                return
+
+            if parsed.path == "/api/listen":
+                # Async kayıt: hemen 202 döner, JS /api/listen/result poll eder
+                import uuid as _uuid
+                rid = _uuid.uuid4().hex
+                data = json.loads(body) if body else {}
+                duration = min(float(data.get("duration", 5)), 10)
+                _listen_jobs[rid] = {"status": "recording"}
+                import threading as _th
+                _th.Thread(target=_do_listen, args=(rid, duration), daemon=True).start()
+                return self._json(202, {"id": rid})
+
+            if parsed.path == "/api/listen/result":
+                data = json.loads(body) if body else {}
+                rid = data.get("id", "")
+                job = _listen_jobs.get(rid)
+                if not job:
+                    return self._json(404, {"error": "no such job"})
+                return self._json(200, job)
+
             if parsed.path == "/api/chat":
                 data = json.loads(body) if body else {}
                 text = (data.get("text") or "").strip()
@@ -213,10 +401,13 @@ class Handler(SimpleHTTPRequestHandler):
             self._json(500, {"error": str(e)})
 
     def _json(self, code, obj):
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(json.dumps(obj).encode("utf-8"))
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(obj).encode("utf-8"))
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # İstemci bağlantıyı kesti — sessizce geç
 
     # ---------- SSE streaming chat ----------
 

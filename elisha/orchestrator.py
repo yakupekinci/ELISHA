@@ -8,6 +8,93 @@ from .wakeword.detector import WakeWordDetector
 from .skills.registry import SkillRegistry
 from .log import log, err
 
+
+def _turkish_persona_fix(text: str) -> str:
+    """
+    qwen2.5:7b Türkçe'de resmi 'siz' formu kullanıyor ve kendini
+    'yapay zeka' olarak tanıtıyor. Bu fonksiyon ELİŞA kişiliğine göre düzeltir.
+    """
+    if not text:
+        return text
+
+    # Türkçe, Latin ve yaygın noktalama dışındaki garip Unicode karakterleri temizle
+    # (Çince, Vietnamca, Arapça harf aksan işaretleri vb. model hatası)
+    import unicodedata
+    allowed = set()
+    cleaned = []
+    for ch in text:
+        cp = ord(ch)
+        cat = unicodedata.category(ch)
+        # İzin verilenler: temel Latin (0-127), Latince ek (128-591), Türkçe özel
+        # noktalama, rakam, boşluk
+        if cp <= 591 or ch in 'şŞğĞıİöÖüÜçÇ…–—•·':
+            cleaned.append(ch)
+        elif cat in ('Zs', 'Pd', 'Po', 'Ps', 'Pe'):  # boşluk, tire, noktalama
+            cleaned.append(ch)
+        else:
+            cleaned.append(' ')  # bilinmeyen → boşlukla değiştir
+    text = re.sub(r' {2,}', ' ', ''.join(cleaned)).strip()
+
+    # "Ben bir yapay zekayım / AI'yım / asistanım" → ELİŞA olarak tanıt
+    text = re.sub(
+        r'\bBen bir (yapay zeka|yapay-zeka|AI|asistan|dil modeli|büyük dil modeli)(y?[ıiuü]m|yım|yim|yum|yüm)\b',
+        'Ben ELİŞA', text, flags=re.IGNORECASE
+    )
+    text = re.sub(
+        r'\b(Bir )?(yapay zeka|AI|asistan|dil modeli) olarak\b',
+        'ELİŞA olarak', text, flags=re.IGNORECASE
+    )
+
+    # Resmi → samimi: siz/size/sizi/sizin/sizinle → sen/sana/seni/senin/seninle
+    replacements = [
+        # Nesne/yön/bulunma/ayrılma ekleri (tek başına)
+        (r'\bsize\b',              'sana'),
+        (r'\bsizi\b',              'seni'),
+        (r'\bsizin\b',             'senin'),
+        (r'\bsizde\b',             'sende'),
+        (r'\bsizden\b',            'senden'),
+        (r'\bsizinle\b',           'seninle'),
+        (r'\bSize\b',              'Sana'),
+        (r'\bSizi\b',              'Seni'),
+        (r'\bSizin\b',             'Senin'),
+        # Özne
+        (r'\bsiz\b',               'sen'),
+        (r'\bSiz\b',               'Sen'),
+        # 2. çoğul kişi ekleri: -(n)ız/-(n)iz/-(n)uz/-(n)üz + durum ekleri
+        (r'nız(?=[a-züşğıöçâîû])', 'n'),   # nıza → na, nızda → nda, nızı → nı
+        (r'niz(?=[a-züşğıöçâîû])', 'n'),
+        (r'nuz(?=[a-züşğıöçâîû])', 'n'),
+        (r'nüz(?=[a-züşğıöçâîû])', 'n'),
+        (r'nız\b',                  'n'),
+        (r'niz\b',                  'n'),
+        (r'nuz\b',                  'n'),
+        (r'nüz\b',                  'n'),
+        # -(i/ı/u/ü)nız/niz ekleri (isim+iyelik+çoğul) → tekil
+        (r'inize\b',               'ine'),
+        (r'ınıza\b',               'ına'),
+        (r'unuza\b',               'una'),
+        (r'ünüze\b',               'üne'),
+        (r'inizi\b',               'ini'),
+        (r'ınızı\b',               'ını'),
+        (r'ununuz\b',              'unun'),
+        # Fiil sonları: -siniz/-sunuz/-sünüz/-şiniz
+        (r'siniz\b',               'sin'),
+        (r'sunuz\b',               'sun'),
+        (r'sünüz\b',               'sün'),
+        (r'şiniz\b',               'şin'),
+        # Çoğul emir: -in/-ın/-un/-ün (kısa emir çoğulu)
+        (r'\bbildir(?:in)\b',      'bildir'),
+        (r'\byazın\b',             'yaz'),
+        # (r'\bsorun\b', 'sor'),  # KALDIRILDI: "sorun"=problem anlamı var, çakışır
+        # Yaygın kelimeler
+        (r'\bihtiyacınız\b',       'ihtiyacın'),
+        (r'\bihtiyacınıza\b',      'ihtiyacına'),
+    ]
+    for pattern, replacement in replacements:
+        text = re.sub(pattern, replacement, text)
+
+    return text.strip()
+
 class ElishaOrchestrator:
     def __init__(self, config_path=None):
         self.config = load_config(config_path)
@@ -60,7 +147,7 @@ class ElishaOrchestrator:
         if self.memory is None:
             return
         try:
-            recent = self.memory.recent_messages(limit=10)
+            recent = self.memory.recent_messages(limit=30)
             if recent:
                 self.llm.history = [{"role": r["role"], "content": r["content"]} for r in recent]
                 log("MEMORY", f"💬 oturum geri yüklendi ({len(recent)} mesaj)")
@@ -79,8 +166,8 @@ class ElishaOrchestrator:
     def _remember_turn(self, user_text: str, assistant_text: str):
         self.llm.history.append({"role": "user", "content": user_text})
         self.llm.history.append({"role": "assistant", "content": assistant_text})
-        if len(self.llm.history) > 10:
-            self.llm.history = self.llm.history[-10:]
+        if len(self.llm.history) > 30:
+            self.llm.history = self.llm.history[-30:]
         if self.memory is not None:
             try:
                 self.memory.save_message("user", user_text)
@@ -101,10 +188,11 @@ class ElishaOrchestrator:
             if not text:
                 return "Efendim? Seni dinliyorum."
 
-        # Kısa selamlamaları direkt yanıtla (LLM'e gönderme)
+        # Sadece çok kısa uyandırma/tetik kelimelerini kısa devre yap
+        # Gerisi (nasılsın, merhaba + soru) LLM'e gitsin — daha doğal cevap verir
         t_lower = text.lower().strip()
-        if t_lower in ("uyan", "hey", "merhaba", "selam", "naber", "hey elişa",
-                       "elişa", "elisha", "hi", "hello"):
+        _WAKE_ONLY = {"uyan", "hey", "elişa", "elisha", "hey elişa", "hey elisha"}
+        if t_lower in _WAKE_ONLY:
             return "Buradayım, seni dinliyorum."
 
         log("USER", f"👤 {text}")
@@ -150,6 +238,7 @@ class ElishaOrchestrator:
                 result = self.agent.run(text, history=list(self.llm.history))
                 final = (result.final_text or "").strip()
                 if final:
+                    final = _turkish_persona_fix(final)
                     self._remember_turn(text, final)
                     log("CHAT", f"🤖 {final}")
                     return final
@@ -166,8 +255,6 @@ class ElishaOrchestrator:
         log("LLM", f"🧠 ham: {llm_raw[:200]}")
         clean, skill_results = self.skills.handle_text(llm_raw)
 
-        # Fallback SADECE LLM anlamlı bir cevap üretemediyse çalışır
-        # (AŞAMA 20: başarılı LLM cevabından sonra ikinci/çift cevap üretme bug'ı)
         meaningful = clean and len(clean.strip()) >= 5 and "Asistan:" not in clean
         if not skill_results and not meaningful:
             fallback = self._fallback_skill(text)
@@ -178,10 +265,8 @@ class ElishaOrchestrator:
                     clean = clean2
                     skill_results = skill_results2
 
-        # skill sonuçlarını cevaba ekle (tek final response garantisi)
         final = clean
         if skill_results:
-            # eğer clean boşsa sadece skill sonucu göster
             if not clean or len(clean) < 5:
                 final = "\n".join(skill_results)
             else:
@@ -191,6 +276,7 @@ class ElishaOrchestrator:
         if not final:
             final = llm_raw.strip() or "Bir şey diyemedim."
 
+        final = _turkish_persona_fix(final)
         log("CHAT", f"🤖 {final}")
         return final
 
@@ -226,16 +312,16 @@ class ElishaOrchestrator:
         Sonsuz döngü: dinle -> işle -> konuş
         Ctrl+C ile çık
         """
-        print(f"🎧 {self.name} sesli döngü başladı. Konuşmak için mikrofonu kullan.")
-        print("İpucu: 'Eleşa, Chrome'u aç' gibi dene. Çıkmak için Ctrl+C")
-        # açılış
+        print(f"🎧 {self.name} sesli döngü başladı.")
+        print("   Konuş — ses algılandığında otomatik kaydedilir ve işlenir.")
+        print("   Çıkmak için Ctrl+C\n")
         self.speak(f"Merhaba, ben {self.name}. Seni dinliyorum.")
 
+        _silent_count = 0
         try:
             while True:
                 text = self.listen_once()
                 if not text:
-                    # STT mock ise klavyeden al
                     if self.stt.provider == "mock":
                         try:
                             text = input("\n⌨️ Yaz (mock STT): ").strip()
@@ -244,16 +330,14 @@ class ElishaOrchestrator:
                         except (EOFError, KeyboardInterrupt):
                             break
                     else:
-                        print("… ses algılanamadı, tekrar deniyorum")
+                        _silent_count += 1
+                        if _silent_count % 3 == 0:
+                            print("   (ses algılanamadı — mikrofona konuş)")
                         continue
+                _silent_count = 0
                 if not text:
                     continue
-                log("STT", f"📝 {text}")
-                # wake word text fallback
-                if self.wakeword.enabled and "elişa" not in text.lower() and "elisha" not in text.lower():
-                    # wake word bekleniyor ama yoksa da devam et (V1'de katı değil)
-                    pass
-
+                log("STT", f"📝 Duydum: {text}")
                 response = self.process_text(text)
                 self.speak(response)
         except KeyboardInterrupt:
