@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from elisha.orchestrator import ElishaOrchestrator
 from elisha.log import log, err
+from elisha import settings
 
 PORT = 8765
 WEB_DIR = Path(__file__).parent / "web"
@@ -284,6 +285,9 @@ class Handler(SimpleHTTPRequestHandler):
                     except: pass
                 self._json(200, {"wake": False})
                 return
+            if parsed.path == "/api/settings":
+                self._json(200, settings.get_all())
+                return
             if parsed.path == "/api/wake_enable":
                 Path("/tmp/elisha_wake_enabled").write_text("1")
                 self._json(200, {"enabled": True})
@@ -309,6 +313,14 @@ class Handler(SimpleHTTPRequestHandler):
                 Path("/tmp/elisha_wake_enabled").write_text("1")
                 Path("/tmp/elisha_wake").write_text("api")
                 self._json(200, {"ok": True, "wake": True})
+                return
+
+            if parsed.path == "/api/settings":
+                data = json.loads(body) if body else {}
+                if not data or not isinstance(data, dict):
+                    return self._json(400, {"error": "expected JSON object with key/value pairs"})
+                settings.set_many(data)
+                self._json(200, {"ok": True, "settings": settings.get_all()})
                 return
 
             if parsed.path == "/api/listen":
