@@ -108,6 +108,7 @@ class AgentLoop:
             for call in tool_calls:
                 fn = (call.get("function") or {})
                 name = fn.get("name", "")
+                tool_call_id = call.get("id", "")  # Groq/OpenAI tool_call_id
                 raw_args = fn.get("arguments") or {}
                 if isinstance(raw_args, str):
                     try:
@@ -120,7 +121,10 @@ class AgentLoop:
                 if step_count > self.max_steps:
                     result_text = "Adım limiti doldu, bu araç çalıştırılamadı."
                     steps.append(AgentStep("limit", name=name))
-                    messages.append({"role": "tool", "content": result_text})
+                    tool_msg = {"role": "tool", "content": result_text}
+                    if tool_call_id:
+                        tool_msg["tool_call_id"] = tool_call_id
+                    messages.append(tool_msg)
                     continue
 
                 self._status(self._status_label(name, args))
@@ -144,22 +148,45 @@ class AgentLoop:
                 })
                 log("TOOL", f"🔧 {name}({args}) -> {'OK' if result.success else 'FAIL'} "
                       f"[{dt:.2f}s] {result_text[:150]}")
-                messages.append({"role": "tool", "content": result_text})
+                tool_msg = {"role": "tool", "content": result_text}
+                if tool_call_id:
+                    tool_msg["tool_call_id"] = tool_call_id
+                messages.append(tool_msg)
 
     def _chat(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]) -> Dict[str, Any]:
         # Provider varsa onu kullan (Groq/Ollama), yoksa eski Ollama yoluna düş
         if self._provider and self._provider.supports_tools:
-            response = self._provider.chat(
-                messages, tools=tools,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-            )
-            return {"content": response.content, "tool_calls": response.tool_calls or []}
+            try:
+                response = self._provider.chat(
+                    messages, tools=tools,
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                )
+                return {"content": response.content, "tool_calls": response.tool_calls or []}
+            except Exception as e:
+                # Groq 429/500 → Ollama fallback
+                err(f"{self._provider.name} hatası: {e}, Ollama fallback deneniyor")
+                return self._chat_ollama_fallback(messages, tools)
 
         # Fallback: doğrudan Ollama HTTP (eski yol)
+        return self._chat_ollama_fallback(messages, tools)
+
+    def _chat_ollama_fallback(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Ollama'ya doğrudan HTTP isteği (fallback)."""
+        # tool mesajlarındaki tool_call_id'yi temizle (Ollama anlamaz)
+        clean_msgs = []
+        for m in messages:
+            cm = dict(m)
+            cm.pop("tool_call_id", None)
+            if "tool_calls" in cm:
+                # Ollama formatı: id alanı yok
+                cm["tool_calls"] = [
+                    {"function": tc.get("function", tc)} for tc in cm["tool_calls"]
+                ]
+            clean_msgs.append(cm)
         payload = {
             "model": self.model,
-            "messages": messages,
+            "messages": clean_msgs,
             "stream": False,
             "tools": tools,
             "options": {
@@ -167,9 +194,13 @@ class AgentLoop:
                 "num_predict": self.max_tokens,
             },
         }
-        r = requests.post(f"{self.host}/api/chat", json=payload, timeout=90)
-        r.raise_for_status()
-        return r.json().get("message", {})
+        try:
+            r = requests.post(f"{self.host}/api/chat", json=payload, timeout=90)
+            r.raise_for_status()
+            return r.json().get("message", {})
+        except Exception as e:
+            err(f"Ollama fallback de başarısız: {e}")
+            return {"content": "Üzgünüm, şu an hem Groq hem Ollama yanıt veremiyor. Biraz sonra tekrar dener misin?", "tool_calls": []}
 
     def _force_summary(self, messages: List[Dict[str, Any]]) -> str:
         msgs = [m for m in messages]

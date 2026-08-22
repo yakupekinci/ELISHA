@@ -65,15 +65,14 @@ def speak(text):
 
 def main():
     print("💫 ELİŞA Wake Daemon başladı — 'hey elisha' bekleniyor (Ctrl+C durdur)")
-    print("   Masaüstünde, tarayıcıda, her yerde tetikler. %100 local, tiny değil small STT.")
+    print("   Masaüstünde, tarayıcıda, her yerde tetikler. %100 local.")
     from elisha.wakeword.detector import WakeWordDetector
     from elisha.config import load_config
     import sounddevice as sd
 
     cfg = load_config()
-    # wake word detector (lazy small)
+    # wake word detector
     det = WakeWordDetector(cfg)
-    # ilk tetikte model yüklenecek, biraz zaman alabilir
     print(f"Wake mod: {getattr(det,'_mode','?')}, words: {det.wake_words}")
 
     # Ollama hazır mı kontrol (ELİŞA beyin)
@@ -87,16 +86,79 @@ def main():
     except:
         print("Ollama yok, mock ile devam")
 
+    # openWakeWord modu: ultra hafif, sürekli dinleme (80ms chunk'lar)
+    if getattr(det, '_mode', '') == "openwakeword":
+        print("🎯 openWakeWord modu: sürekli 80ms chunk analizi (çok düşük CPU)")
+        _run_openwakeword_loop(det, cfg)
+    else:
+        # STT fallback modu: 2.5s kayıt + whisper transcribe
+        print("🎤 STT wake modu: 2.5s kayıt + whisper transcribe (daha yoğun CPU)")
+        _run_stt_wake_loop(det, cfg)
+
+
+def _run_openwakeword_loop(det, cfg):
+    """openWakeWord ile ultra hafif sürekli dinleme — CPU %1-2."""
+    import sounddevice as sd
+    import time
+
+    sr = 16000
+    chunk_samples = 1280  # 80ms @ 16kHz
+    threshold = cfg.get("wakeword", {}).get("threshold", 0.5)
+
+    consecutive_triggers = 0
+    required_consecutive = 2  # 2 ardışık pozitif → tetikle (yanlış alarm azalt)
+
+    while True:
+        if not Path("/tmp/elisha_wake_enabled").exists():
+            time.sleep(1)
+            continue
+        try:
+            # 80ms kayıt
+            rec = sd.rec(chunk_samples, samplerate=sr, channels=1, dtype='float32')
+            sd.wait()
+            chunk = rec.flatten()
+
+            pred = det._engine.predict(chunk)
+            score = pred.get("hey_jarvis", 0.0)
+
+            if score > threshold:
+                consecutive_triggers += 1
+                if consecutive_triggers >= required_consecutive:
+                    print(f"✨ openWakeWord TETİKLENDİ! score={score:.3f} (x{consecutive_triggers})")
+                    consecutive_triggers = 0
+                    ensure_gui()
+                    try:
+                        Path("/tmp/elisha_wake").write_text(f"hey_jarvis score={score:.2f}")
+                    except:
+                        pass
+                    print("GUI komut dinliyor... 8 sn bekle")
+                    # Reset model buffer (yanlış tekrar tetikleme önle)
+                    det._engine.reset()
+                    time.sleep(8)
+            else:
+                consecutive_triggers = 0
+
+        except KeyboardInterrupt:
+            print("\nDaemon durdu")
+            break
+        except Exception as e:
+            print(f"oww hata: {e}")
+            time.sleep(0.5)
+
+
+def _run_stt_wake_loop(det, cfg):
+    """STT tabanlı fallback wake — her 2.5s'de whisper transcribe."""
+    import sounddevice as sd
+    import time
+
     consecutive = 0
     while True:
-        # web'den kapatıldıysa dinleme
         if not Path("/tmp/elisha_wake_enabled").exists():
             time.sleep(1)
             continue
         try:
             sr = 16000
-            dur = 2.5  # "hey elişa uyan" tam sığsın
-            # kayıt
+            dur = 2.5
             try:
                 rec = sd.rec(int(dur*sr), samplerate=sr, channels=1, dtype='int16')
                 sd.wait()
@@ -106,7 +168,7 @@ def main():
                 time.sleep(1)
                 continue
 
-            if np.abs(audio).mean() < 120:  # düşük eşik — fısıltıyı da yakala
+            if np.abs(audio).mean() < 120:
                 time.sleep(0.15)
                 continue
 
@@ -114,24 +176,16 @@ def main():
             if triggered:
                 print(f"✨ TETİKLENDİ: '{txt}'")
                 consecutive = 0
-                # GUI'yi uyandır
                 ensure_gui()
-                # tetik dosyası oluştur (GUI poll ederse)
                 try:
                     Path("/tmp/elisha_wake").write_text(txt)
-                except: pass
-                # sesli karşılık
-                # web hallediyor, daemon sessiz kalsın (çift ses olmasın)
-                # if ENABLE_TTS_WAKE_RESPONSE:
-                #     speak("Buyurun, sizi dinliyorum")
-                print("GUI komut dinliyor... 10 sn bekle (web hallediyor)")
+                except:
+                    pass
+                print("GUI komut dinliyor... 10 sn bekle")
                 time.sleep(10)
-                # sonra tekrar wake dinlemeye devam
                 continue
             else:
-                # ara sıra log (spam olmasın)
-                if txt and len(txt.strip())>2:
-                    # print(f"duydu: {txt}")
+                if txt and len(txt.strip()) > 2:
                     pass
                 time.sleep(0.2)
         except KeyboardInterrupt:

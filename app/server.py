@@ -26,10 +26,14 @@ def _get_whisper():
     with _whisper_lock:
         if _whisper_model is None:
             from faster_whisper import WhisperModel
+            from elisha.config import load_config
             import warnings
+            cfg = load_config()
+            stt_model = cfg.get("stt", {}).get("model", "medium")
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                _whisper_model = WhisperModel("small", device="cpu", compute_type="int8")
+                _whisper_model = WhisperModel(stt_model, device="cpu", compute_type="int8")
+            log("STT", f"faster-whisper ({stt_model}) yüklendi")
     return _whisper_model
 
 # ── Uyarı sesleri (afplay ile anlık) ──────────────────────────
@@ -306,6 +310,13 @@ class Handler(SimpleHTTPRequestHandler):
                 except: pass
                 self._json(200, {"enabled": False})
                 return
+            if parsed.path == "/api/voices":
+                bot = get_bot()
+                self._json(200, {
+                    "voices": bot.tts.available_voices,
+                    "current_gender": bot.tts.gender,
+                })
+                return
         except Exception as e:
             self._json(500, {"error": str(e)})
         return super().do_GET()
@@ -330,6 +341,23 @@ class Handler(SimpleHTTPRequestHandler):
                     return self._json(400, {"error": "expected JSON object with key/value pairs"})
                 settings.set_many(data)
                 self._json(200, {"ok": True, "settings": settings.get_all()})
+                return
+
+            if parsed.path == "/api/voice":
+                data = json.loads(body) if body else {}
+                gender = data.get("gender", "").lower()
+                if gender not in ("female", "male"):
+                    return self._json(400, {"error": "gender must be 'female' or 'male'"})
+                bot = get_bot()
+                ok = bot.tts.set_gender(gender)
+                if ok:
+                    # Piper cache'i de güncelle
+                    global _piper_voice
+                    with _piper_lock:
+                        _piper_voice = None  # yeniden yüklenecek
+                    self._json(200, {"ok": True, "gender": gender})
+                else:
+                    self._json(404, {"error": f"{gender} sesi yüklü değil. voices/ klasörüne model dosyasını indirin."})
                 return
 
             if parsed.path == "/api/listen":

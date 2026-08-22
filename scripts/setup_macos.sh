@@ -158,12 +158,13 @@ echo "6/6 Dock ve Finder kısayolları..."
 
 # .command dosyasını Dock'a eklemeye yardımcı olacak bir .app wrapper
 APP_DIR="$ELISHA_ROOT/ELİŞA.app"
-if [ ! -d "$APP_DIR" ]; then
-    mkdir -p "$APP_DIR/Contents/MacOS"
-    mkdir -p "$APP_DIR/Contents/Resources"
+# Her zaman yeniden oluştur (güncelleme için)
+rm -rf "$APP_DIR"
+mkdir -p "$APP_DIR/Contents/MacOS"
+mkdir -p "$APP_DIR/Contents/Resources"
 
-    # Info.plist
-    cat > "$APP_DIR/Contents/Info.plist" << EOF2
+# Info.plist — Dock'ta düzgün görünmesi için gerekli tüm key'ler
+cat > "$APP_DIR/Contents/Info.plist" << EOF2
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -171,43 +172,78 @@ if [ ! -d "$APP_DIR" ]; then
     <key>CFBundleExecutable</key>
     <string>elisha_launcher</string>
     <key>CFBundleIdentifier</key>
-    <string>com.elisha.app</string>
+    <string>com.elisha.voiceassistant</string>
     <key>CFBundleName</key>
     <string>ELİŞA</string>
     <key>CFBundleDisplayName</key>
     <string>ELİŞA</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
     <key>CFBundleVersion</key>
-    <string>3.0</string>
+    <string>4.0</string>
     <key>CFBundleShortVersionString</key>
-    <string>3.0</string>
+    <string>4.0</string>
     <key>CFBundleIconFile</key>
     <string>elisha_icon</string>
+    <key>CFBundleIconName</key>
+    <string>elisha_icon</string>
     <key>LSUIElement</key>
-    <string>0</string>
+    <false/>
     <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>ELİŞA sesli komutları dinlemek için mikrofona ihtiyaç duyar.</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>11.0</string>
+    <key>NSSupportsAutomaticGraphicsSwitching</key>
     <true/>
 </dict>
 </plist>
 EOF2
 
-    # Launcher script
-    cat > "$APP_DIR/Contents/MacOS/elisha_launcher" << EOF3
+# Launcher script — venv aktifle, secrets yükle, başlat
+cat > "$APP_DIR/Contents/MacOS/elisha_launcher" << 'EOF3'
 #!/bin/bash
-exec "$ELISHA_ROOT/ELİŞA.command"
-EOF3
-    chmod +x "$APP_DIR/Contents/MacOS/elisha_launcher"
+# ELİŞA macOS Launcher
+SCRIPT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$SCRIPT_DIR"
 
-    # İkonu kopyala
-    if [ -f "$ELISHA_ROOT/app/elisha_icon.png" ]; then
-        cp "$ELISHA_ROOT/app/elisha_icon.png" "$APP_DIR/Contents/Resources/elisha_icon.png"
-    fi
-
-    # Finder'a uygulama olarak tanıt
-    touch "$APP_DIR"
-    echo "   ✅ ELİŞA.app oluşturuldu"
-else
-    echo "   ✅ ELİŞA.app zaten var"
+# Secrets yükle
+if [ -f "$HOME/.config/elisha/secrets.env" ]; then
+    set -a
+    source "$HOME/.config/elisha/secrets.env"
+    set +a
 fi
+
+# venv aktifle
+if [ -f "$SCRIPT_DIR/venv/bin/activate" ]; then
+    source "$SCRIPT_DIR/venv/bin/activate"
+fi
+
+# Ollama varsa başlat
+if command -v ollama &>/dev/null; then
+    ollama serve &>/dev/null &
+    sleep 1
+fi
+
+# ELİŞA başlat
+exec python3 app/desktop_app.py
+EOF3
+chmod +x "$APP_DIR/Contents/MacOS/elisha_launcher"
+
+# İkon kopyala (icns > png tercih et)
+if [ -f "$ELISHA_ROOT/app/elisha_icon.icns" ]; then
+    cp "$ELISHA_ROOT/app/elisha_icon.icns" "$APP_DIR/Contents/Resources/elisha_icon.icns"
+elif [ -f "$ELISHA_ROOT/app/elisha_icon.png" ]; then
+    cp "$ELISHA_ROOT/app/elisha_icon.png" "$APP_DIR/Contents/Resources/elisha_icon.png"
+fi
+
+# PkgInfo dosyası (Finder hız optimizasyonu)
+echo -n "APPL????" > "$APP_DIR/Contents/PkgInfo"
+
+# Finder'a uygulama olarak tanıt
+touch "$APP_DIR"
+echo "   ✅ ELİŞA.app oluşturuldu (Dock'a sürüklenebilir)"
 
 # Quarantine kaldır
 xattr -dr com.apple.quarantine "$APP_DIR" 2>/dev/null || true

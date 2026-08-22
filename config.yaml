@@ -19,14 +19,17 @@ audio:
 
 stt:
   provider: auto  # auto | faster-whisper | whisper | mock
-  model: small    # tiny/base/small/medium - Türkçe için small önerilir
+  model: medium   # tiny/base/small/medium - Türkçe için medium en iyi denge
   language: tr
   device: auto    # auto | cpu | cuda
 
 tts:
   provider: auto  # auto | piper | pyttsx3 | mock
   voice: tr_TR-dfki-medium
-  # Alternatifler: tr_TR-dfki-medium, tr_TR-fahrettin-medium
+  gender: female  # female | male — Piper ses seçimi
+  # Mevcut Türkçe sesler:
+  #   female: tr_TR-dfki-medium (varsayılan, yüksek kalite)
+  #   male: tr_TR-fahrettin-medium (henüz mevcut değil, indirmek için download_voice())
   # Piper sesleri: https://huggingface.co/rhasspy/piper-voices
   speed: 1.0
   piper_model_path: ./voices/tr_TR-dfki-medium.onnx

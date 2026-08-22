@@ -235,6 +235,18 @@ class ElishaOrchestrator:
                 log("CHAT", f"🤖 {fast}")
                 return fast
 
+        # V2.2: basit selamlamalar/sohbet → doğrudan LLM (tool'suz, hızlı)
+        # Agent loop 21 tool tanımını gönderir → token israfı + yavaş
+        # Selamlamaları direkt Groq/Gemini'ye yollayıp doğal cevap alıyoruz
+        if self._is_smalltalk(t_lower):
+            log("SMALLTALK", f"💬 sohbet modunda yanıtlanıyor (tool'suz)")
+            reply = self.llm.chat(text)
+            if reply:
+                reply = _turkish_persona_fix(reply)
+                self._remember_turn(text, reply)
+                log("CHAT", f"🤖 {reply}")
+                return reply
+
         # V2: gerçek agent döngüsü (native tool calling)
         if self.agent is not None:
             try:
@@ -358,6 +370,56 @@ class ElishaOrchestrator:
             return self.llm._chat_mock(text)
         except Exception:
             return ""
+
+    @staticmethod
+    def _is_smalltalk(text_lower: str) -> bool:
+        """Basit selamlamaları ve sohbet cümlelerini algıla.
+        
+        Bunlar agent'a (21 tool ile) gönderilmemeli — doğrudan LLM'e
+        tool'suz giderse hem daha hızlı hem daha doğal cevap verir.
+        """
+        t = text_lower.strip()
+        # Çok uzun cümleler sohbet değil, muhtemelen karmaşık istek
+        if len(t) > 80:
+            return False
+        
+        # Doğrudan selamlama kalıpları
+        _GREETINGS = {
+            "merhaba", "selam", "selamlar", "günaydın", "gunaydin",
+            "iyi akşamlar", "iyi aksamlar", "iyi geceler",
+            "iyi günler", "iyi gunler", "hayırlı sabahlar",
+            "naber", "nbr", "ne haber", "napıyorsun", "napiyon",
+            "hoş geldin", "hos geldin", "hoşgeldin",
+        }
+        if t in _GREETINGS:
+            return True
+        
+        # Sohbet/hal hatır kalıpları (regex)
+        _SMALLTALK_PATTERNS = [
+            r"^(merhaba|selam|günaydın|iyi (akşam|gece|gün)ler?)\b",
+            r"^nasılsın\b", r"^nasilsin\b", r"^nasıl gidiyor\b",
+            r"^ne yapıyorsun\b", r"^ne yapiyorsun\b",
+            r"^iyisin\b", r"^iyi misin\b",
+            r"^teşekkür", r"^tesekkur", r"^sağ ?ol\b", r"^eyvallah\b",
+            r"^görüşürüz\b", r"^gorusuruz\b", r"^hoşça ?kal\b",
+            r"^iyi geceler\b", r"^bay bay\b", r"^bye\b",
+            r"^canın sağ ?olsun\b", r"^olsun\b",
+            r"^tamam\b$", r"^ok\b$", r"^anladım\b$",
+            r"^seni seviyorum\b", r"^çok teşekkürler\b",
+            r"^adın ne", r"^sen kimsin",
+        ]
+        import re as _re
+        for pat in _SMALLTALK_PATTERNS:
+            if _re.search(pat, t):
+                # Ama eğer sonrasında komut belirtisi varsa sohbet değil
+                # ör: "merhaba chrome aç" → komut, sohbet değil
+                _COMMAND_HINTS = ["aç", "kapat", "çal", "sil", "oluştur", "ara",
+                                  "yap", "göster", "listele", "oku", "yaz", "indir"]
+                if any(h in t for h in _COMMAND_HINTS):
+                    return False
+                return True
+        
+        return False
 
     def run_cli_once(self, text: str, speak=False) -> str:
         resp = self.process_text(text)

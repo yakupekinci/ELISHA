@@ -181,9 +181,12 @@ class GroqProvider(LLMProvider):
                     }
                 })
 
+        # Mesajları OpenAI API formatına normalize et
+        oai_messages = self._normalize_messages(messages)
+
         payload: Dict[str, Any] = {
             "model": self.model_name,
-            "messages": messages,
+            "messages": oai_messages,
             "temperature": opts.get("temperature", 0.5),
             "max_tokens": opts.get("max_tokens", 1500),
         }
@@ -222,6 +225,7 @@ class GroqProvider(LLMProvider):
                 except Exception:
                     args = {}
             tool_calls.append({
+                "id": tc.get("id", ""),  # tool_call_id'yi koru (Groq yanıt eşleştirmesi için)
                 "function": {
                     "name": fn.get("name", ""),
                     "arguments": args,
@@ -235,6 +239,53 @@ class GroqProvider(LLMProvider):
             model=self.model_name,
             latency_ms=int((time.time() - t0) * 1000),
         )
+
+    @staticmethod
+    def _normalize_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Mesajları OpenAI/Groq API formatına dönüştür.
+        
+        - assistant tool_calls: type + arguments string olmalı
+        - tool mesajları: tool_call_id zorunlu
+        """
+        normalized = []
+        for msg in messages:
+            role = msg.get("role", "user")
+
+            if role == "assistant" and msg.get("tool_calls"):
+                # tool_calls'ı OpenAI formatına çevir
+                oai_tool_calls = []
+                for tc in msg["tool_calls"]:
+                    fn = tc.get("function", {})
+                    args = fn.get("arguments", {})
+                    # arguments string olmalı
+                    if isinstance(args, dict):
+                        args = json.dumps(args)
+                    oai_tool_calls.append({
+                        "id": tc.get("id", f"call_{len(oai_tool_calls)}"),
+                        "type": "function",
+                        "function": {
+                            "name": fn.get("name", ""),
+                            "arguments": args,
+                        }
+                    })
+                normalized.append({
+                    "role": "assistant",
+                    "content": msg.get("content") or "",
+                    "tool_calls": oai_tool_calls,
+                })
+            elif role == "tool":
+                normalized.append({
+                    "role": "tool",
+                    "tool_call_id": msg.get("tool_call_id", "call_0"),
+                    "content": msg.get("content", ""),
+                })
+            else:
+                # system, user, normal assistant — olduğu gibi geç
+                normalized.append({
+                    "role": role,
+                    "content": msg.get("content", ""),
+                })
+        return normalized
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

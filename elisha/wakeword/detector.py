@@ -13,11 +13,11 @@ class WakeWordDetector:
         if not self.enabled:
             print("ℹ️ WakeWord: kapalı (butonla tetiklenecek)")
             return
-        # 1) openwakeword dene (hey_jarvis)
+        # 1) openwakeword dene (hey_jarvis) — onnxruntime backend ile
         try:
             from openwakeword.model import Model
-            self._engine = Model(wakeword_models=["hey_jarvis"])
-            print("✅ WakeWord: openWakeWord (hey_jarvis) hazır - 'hey elişa' benzer tetikler")
+            self._engine = Model(wakeword_models=["hey_jarvis"], inference_framework="onnx")
+            print("✅ WakeWord: openWakeWord (hey_jarvis + onnx) hazır - 'hey elişa' benzer tetikler")
             self._mode = "openwakeword"
             return
         except Exception as e:
@@ -101,10 +101,11 @@ class WakeWordDetector:
         if getattr(self, "_stt_wake", None) is None:
             try:
                 from faster_whisper import WhisperModel
-                print("⏳ Wake STT modeli yükleniyor (small, bir kez)...")
-                self._stt_wake = WhisperModel("small", device="cpu", compute_type="int8")
+                wake_model = self.config.get("stt", {}).get("model", "medium")
+                print(f"⏳ Wake STT modeli yükleniyor ({wake_model}, bir kez)...")
+                self._stt_wake = WhisperModel(wake_model, device="cpu", compute_type="int8")
                 self._engine = "stt"
-                print("✅ Wake STT hazır")
+                print(f"✅ Wake STT hazır ({wake_model})")
             except Exception as e:
                 print(f"STT wake yükleme hatası: {e}")
                 return False, ""
