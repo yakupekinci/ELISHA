@@ -38,7 +38,7 @@ llm:
   fallback_model: qwen2.5:1.5b
   host: http://localhost:11434
   # Cloud modelleri (API key env variable'dan okunur, config'e yazılmaz)
-  groq_model: llama-3.3-70b-versatile    # GROQ_API_KEY env
+  groq_model: openai/gpt-oss-120b          # GROQ_API_KEY env — 120B, hızlı, iyi Türkçe
   gemini_model: gemini-2.0-flash         # GEMINI_API_KEY env
   temperature: 0.5
   max_tokens: 1500

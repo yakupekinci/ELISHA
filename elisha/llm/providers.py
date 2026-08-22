@@ -144,7 +144,7 @@ class GroqProvider(LLMProvider):
 
     def __init__(self, config: dict):
         cfg = config.get("llm", {}) or {}
-        self.model_name = cfg.get("groq_model", "llama-3.3-70b-versatile")
+        self.model_name = cfg.get("groq_model", "openai/gpt-oss-120b")
         self.api_key = os.environ.get("GROQ_API_KEY", "")
 
     def status(self) -> ProviderStatus:
@@ -192,12 +192,24 @@ class GroqProvider(LLMProvider):
             payload["tool_choice"] = "auto"
 
         r = requests.post(self.API_URL, headers=headers, json=payload, timeout=30)
+
+        # Rate limit: kısa bekle ve tekrar dene
+        if r.status_code == 429:
+            import time as _time
+            retry_after = int(r.headers.get("retry-after", "3"))
+            _time.sleep(min(retry_after, 5))
+            r = requests.post(self.API_URL, headers=headers, json=payload, timeout=30)
+
         r.raise_for_status()
         data = r.json()
 
         choice = data.get("choices", [{}])[0]
         msg = choice.get("message", {})
         content = (msg.get("content") or "").strip()
+
+        # <think>...</think> tag'lerini temizle (Qwen reasoning mode)
+        import re as _re
+        content = _re.sub(r'<think>.*?</think>', '', content, flags=_re.DOTALL).strip()
 
         # OpenAI tool_calls → Ollama format'a normalize et
         tool_calls = []
