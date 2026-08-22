@@ -553,6 +553,16 @@
     .toggle-sw.on { background: rgba(0,212,255,0.25); border-color: rgba(0,212,255,0.5); }
     .toggle-sw.on::after { transform: translateX(16px); background: var(--cyan); }
 
+    /* Settings select & range */
+    .setting-select {
+      background: rgba(0,212,255,0.08); border: 1px solid rgba(0,212,255,0.2);
+      color: var(--fg); border-radius: 6px; padding: 4px 8px; font-size: 11px;
+      font-family: var(--font-ui); cursor: pointer; outline: none;
+    }
+    .setting-select:focus { border-color: var(--cyan); }
+    .setting-range { width: 80px; accent-color: var(--cyan); cursor: pointer; }
+    .setting-val { font-size: 11px; color: var(--cyan); min-width: 24px; text-align: center; }
+
     /* System panel */
     .sys-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(0,212,255,0.07); font-size: 12px; }
     .sys-key { color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
@@ -1293,23 +1303,11 @@
             </span>
             SESLİ MOD
           </button>
-          <button type="button" class="nav-item" data-panel="files">
-            <span class="nav-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>
-            </span>
-            DOSYALAR
-          </button>
           <button type="button" class="nav-item" data-panel="system">
             <span class="nav-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
             </span>
             SİSTEM
-          </button>
-          <button type="button" class="nav-item" data-panel="search">
-            <span class="nav-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-            </span>
-            ARAŞTIRMA
           </button>
           <button type="button" class="nav-item" data-panel="settings">
             <span class="nav-icon" aria-hidden="true">
@@ -1334,48 +1332,48 @@
             </form>
           </div>
 
-          <!-- FILES PANEL -->
-          <div class="cpanel" id="panel-files">
-            <div class="file-btns">
-              <button class="file-btn" onclick="loadFiles('~/Desktop')">🖥 Masaüstü</button>
-              <button class="file-btn" onclick="loadFiles('~/Downloads')">⬇ İndirilenler</button>
-              <button class="file-btn" onclick="loadFiles('~/Documents')">📄 Belgeler</button>
-            </div>
-            <div class="file-list" id="fileList"><div class="msg sys">Yukarıdan klasör seç.</div></div>
-          </div>
-
           <!-- SYSTEM PANEL -->
           <div class="cpanel" id="panel-system">
             <div class="sys-row"><span class="sys-key">STT</span><span class="sys-val" id="sysValStt">—</span></div>
             <div class="sys-row"><span class="sys-key">TTS</span><span class="sys-val" id="sysValTts">—</span></div>
             <div class="sys-row"><span class="sys-key">LLM</span><span class="sys-val" id="sysValLlm">—</span></div>
+            <div class="sys-row"><span class="sys-key">Provider</span><span class="sys-val" id="sysValProvider">—</span></div>
             <div class="sys-row"><span class="sys-key">Bağlantı</span><span class="sys-val" id="sysValConn">Kontrol ediliyor…</span></div>
             <div class="sys-row"><span class="sys-key">Saat</span><span class="sys-val" id="sysValTime">—</span></div>
             <button class="file-btn" style="margin-top:8px" onclick="refreshStatus()">Yenile</button>
-          </div>
-
-          <!-- SEARCH PANEL -->
-          <div class="cpanel" id="panel-search">
-            <div class="search-bar">
-              <input id="searchInput" type="text" placeholder="İnternette ara…" />
-              <button class="search-btn" onclick="doSearch()">Ara</button>
-            </div>
-            <div id="searchResults"></div>
           </div>
 
           <!-- SETTINGS PANEL -->
           <div class="cpanel" id="panel-settings">
             <div class="setting-row">
               <span class="setting-label">TTS Ses</span>
-              <div class="toggle-sw on" id="toggleTts" onclick="toggleSetting('tts',this)" title="Sesi aç/kapat"></div>
+              <div class="toggle-sw on" id="toggleTts" onclick="toggleSetting('tts_enabled',this)" title="Sesi aç/kapat"></div>
             </div>
             <div class="setting-row">
               <span class="setting-label">Wakeword</span>
-              <div class="toggle-sw" id="toggleWake" onclick="toggleSetting('wake',this)" title="Hey ELISHA"></div>
+              <div class="toggle-sw" id="toggleWake" onclick="toggleSetting('wake_enabled',this)" title="Hey ELISHA"></div>
             </div>
             <div class="setting-row">
-              <span class="setting-label">Animasyon</span>
-              <div class="toggle-sw on" id="toggleAnim" onclick="toggleSetting('anim',this)" title="Animasyonları aç/kapat"></div>
+              <span class="setting-label">AI Provider</span>
+              <select id="selProvider" class="setting-select" onchange="changeSetting('provider',this.value)">
+                <option value="auto">Otomatik (Groq &gt; Ollama)</option>
+                <option value="groq">Groq (Bulut, Hızlı)</option>
+                <option value="ollama">Ollama (Yerel)</option>
+                <option value="gemini">Gemini (Bulut)</option>
+              </select>
+            </div>
+            <div class="setting-row">
+              <span class="setting-label">Ses Hızı</span>
+              <input type="range" id="rangeSpeed" min="0.7" max="1.4" step="0.1" value="1.0"
+                     class="setting-range" oninput="changeSetting('speed',parseFloat(this.value))" />
+              <span class="setting-val" id="valSpeed">1.0</span>
+            </div>
+            <div class="setting-row">
+              <span class="setting-label">Tema</span>
+              <select id="selTheme" class="setting-select" onchange="changeSetting('theme',this.value)">
+                <option value="dark">Dark</option>
+                <option value="amoled">AMOLED</option>
+              </select>
             </div>
           </div>
         </div>
@@ -1886,57 +1884,6 @@
       });
     });
 
-    /* ───── FILES PANEL ───── */
-    window.loadFiles = async function(path) {
-      var fl = document.getElementById("fileList");
-      fl.innerHTML = "<div class='msg sys'>Yükleniyor…</div>";
-      try {
-        var res = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: path + " dosyalarını listele", tts: false })
-        });
-        var j = await res.json();
-        var lines = (j.reply || "").split("\n").filter(function(l) { return l.trim(); });
-        fl.innerHTML = "";
-        lines.forEach(function(line) {
-          var d = document.createElement("div");
-          d.className = "fitem";
-          d.textContent = line;
-          fl.appendChild(d);
-        });
-        if (!lines.length) fl.innerHTML = "<div class='msg sys'>Sonuç yok.</div>";
-      } catch(e) {
-        fl.innerHTML = "<div class='msg sys'>Hata: " + e.message + "</div>";
-      }
-    };
-
-    /* ───── SEARCH PANEL ───── */
-    window.doSearch = async function() {
-      var q = document.getElementById("searchInput").value.trim();
-      if (!q) return;
-      var results = document.getElementById("searchResults");
-      results.innerHTML = "<div class='msg sys'>Arıyorum…</div>";
-      try {
-        var res = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: q + " ara", tts: false })
-        });
-        var j = await res.json();
-        results.innerHTML = "";
-        var d = document.createElement("div");
-        d.className = "search-result";
-        d.textContent = j.reply || "Sonuç yok.";
-        results.appendChild(d);
-      } catch(e) {
-        results.innerHTML = "<div class='msg sys'>Hata.</div>";
-      }
-    };
-    document.getElementById("searchInput").addEventListener("keydown", function(e) {
-      if (e.key === "Enter") doSearch();
-    });
-
     /* ───── SYSTEM PANEL ───── */
     window.refreshStatus = async function() {
       var conn = document.getElementById("sysValConn");
@@ -1946,14 +1893,17 @@
         var j = await res.json();
         document.getElementById("sysValStt").textContent = j.stt || "—";
         document.getElementById("sysValTts").textContent = j.tts || "—";
-        document.getElementById("sysValLlm").textContent = j.llm || "—";
+        document.getElementById("sysValLlm").textContent = (j.llm || "—") + " (" + (j.provider || "?") + ")";
+        var provEl = document.getElementById("sysValProvider");
+        if (provEl) provEl.textContent = j.provider || "—";
         conn.textContent = "✓ Bağlı";
         pillStt.textContent = (j.stt || "STT").toUpperCase().slice(0,8);
         pillStt.className = "wpill ok";
         pillTts.textContent = (j.tts || "TTS").toUpperCase().slice(0,8);
         pillTts.className = "wpill ok";
-        pillLlm.textContent = (j.llm || "LLM").toUpperCase().slice(0,8);
-        pillLlm.className = "wpill on";
+        var llmLabel = (j.provider || j.llm || "LLM").toUpperCase().slice(0,8);
+        pillLlm.textContent = llmLabel;
+        pillLlm.className = "wpill " + (j.provider === "groq" || j.provider === "gemini" ? "ok" : "on");
       } catch(e) {
         conn.textContent = "✗ Bağlantı yok";
       }
@@ -1963,17 +1913,58 @@
     window.toggleSetting = function(key, el) {
       el.classList.toggle("on");
       var isOn = el.classList.contains("on");
-      if (key === "tts") {
+      // Kalıcı olarak kaydet
+      var payload = {};
+      payload[key] = isOn;
+      fetch("/api/settings", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload)
+      }).catch(function() {});
+
+      if (key === "tts_enabled") {
         ttsEnabled = isOn;
         showToast("TTS " + (isOn ? "açık" : "kapalı"));
-      } else if (key === "wake") {
+      } else if (key === "wake_enabled") {
         fetch(isOn ? "/api/wake_enable" : "/api/wake_disable").catch(function() {});
         showToast("Wakeword " + (isOn ? "açık" : "kapalı"));
-      } else if (key === "anim") {
-        document.body.style.setProperty("--animation-state", isOn ? "running" : "paused");
-        showToast("Animasyon " + (isOn ? "açık" : "kapalı"));
       }
     };
+
+    window.changeSetting = function(key, value) {
+      var payload = {};
+      payload[key] = value;
+      fetch("/api/settings", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload)
+      }).catch(function() {});
+      if (key === "speed") {
+        document.getElementById("valSpeed").textContent = value.toFixed(1);
+        showToast("Hız: " + value.toFixed(1));
+      } else if (key === "provider") {
+        showToast("Provider: " + value);
+      } else if (key === "theme") {
+        showToast("Tema: " + value);
+      }
+    };
+
+    // Başlangıçta ayarları yükle
+    (async function loadSettings() {
+      try {
+        var r = await fetch("/api/settings");
+        var s = await r.json();
+        if (s.tts_enabled === false) document.getElementById("toggleTts").classList.remove("on");
+        if (s.wake_enabled) document.getElementById("toggleWake").classList.add("on");
+        if (s.provider) document.getElementById("selProvider").value = s.provider;
+        if (s.speed) {
+          document.getElementById("rangeSpeed").value = s.speed;
+          document.getElementById("valSpeed").textContent = s.speed.toFixed ? s.speed.toFixed(1) : s.speed;
+        }
+        if (s.theme) document.getElementById("selTheme").value = s.theme;
+        ttsEnabled = s.tts_enabled !== false;
+      } catch(e) {}
+    })();
 
     /* ───── STATUS POLLING ───── */
     refreshStatus();

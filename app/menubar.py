@@ -42,7 +42,7 @@ class ELISHABar(rumps.App):
         kwargs = {"name": "ELİŞA", "quit_button": None}
         if icon_path and pathlib.Path(icon_path).exists():
             kwargs["icon"] = icon_path
-            kwargs["template"] = False  # renkli ikon göster
+            kwargs["template"] = True  # macOS açık/koyu temaya otomatik uyum
         else:
             kwargs["name"] = "✦"
 

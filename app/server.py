@@ -270,8 +270,17 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             if parsed.path == "/api/status":
                 bot = get_bot()
-                self._json(200, {"name": "ELİŞA", "stt": bot.stt.provider, "tts": bot.tts.provider,
-                                 "llm": bot.llm.provider, "wake": "hey elişa uyan"})
+                providers = bot.llm.router.available_providers if hasattr(bot.llm, 'router') else []
+                primary = bot.llm.router.primary_provider if hasattr(bot.llm, 'router') else None
+                self._json(200, {
+                    "name": "ELİŞA",
+                    "stt": bot.stt.provider,
+                    "tts": bot.tts.provider,
+                    "llm": bot.llm.model,
+                    "provider": primary.name if primary else bot.llm.provider,
+                    "providers": providers,
+                    "wake": "hey elişa uyan",
+                })
                 return
             if parsed.path == "/api/health":
                 self._json(200, {"ok": True})
