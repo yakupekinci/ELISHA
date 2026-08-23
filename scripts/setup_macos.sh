@@ -201,34 +201,8 @@ cat > "$APP_DIR/Contents/Info.plist" << EOF2
 </plist>
 EOF2
 
-# Launcher script — venv aktifle, secrets yükle, başlat
-cat > "$APP_DIR/Contents/MacOS/elisha_launcher" << 'EOF3'
-#!/bin/bash
-# ELİŞA macOS Launcher
-SCRIPT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
-cd "$SCRIPT_DIR"
-
-# Secrets yükle
-if [ -f "$HOME/.config/elisha/secrets.env" ]; then
-    set -a
-    source "$HOME/.config/elisha/secrets.env"
-    set +a
-fi
-
-# venv aktifle
-if [ -f "$SCRIPT_DIR/venv/bin/activate" ]; then
-    source "$SCRIPT_DIR/venv/bin/activate"
-fi
-
-# Ollama varsa başlat
-if command -v ollama &>/dev/null; then
-    ollama serve &>/dev/null &
-    sleep 1
-fi
-
-# ELİŞA başlat
-exec python3 app/desktop_app.py
-EOF3
+# Launcher script — repodaki kanonik sürümü kopyala (tek doğruluk kaynağı)
+cp "$ELISHA_ROOT/app/elisha_launcher" "$APP_DIR/Contents/MacOS/elisha_launcher"
 chmod +x "$APP_DIR/Contents/MacOS/elisha_launcher"
 
 # İkon kopyala (icns > png tercih et)

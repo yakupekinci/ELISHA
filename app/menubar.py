@@ -117,7 +117,7 @@ class ELISHABar(rumps.App):
         rumps.quit_application(None)
 
 # ── Menü bar PNG ikonunu bul / oluştur ────────────────────────────────────
-def _get_icon() -> str | None:
+def _get_icon():
     """Menü bar için küçük template icon."""
     # Önce özel menubar ikonu dene (44x44, template uyumlu)
     menubar_icon = pathlib.Path(__file__).parent / "menubar_icon.png"
@@ -130,6 +130,7 @@ def _get_icon() -> str | None:
         return str(png)
 
     # SVG → PNG dönüşümü (cairosvg veya Pillow varsa)
+    svg = ROOT / "assets" / "elisha_logo.svg"
     if svg.exists():
         try:
             import cairosvg
