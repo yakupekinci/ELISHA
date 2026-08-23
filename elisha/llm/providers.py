@@ -305,7 +305,7 @@ class GeminiProvider(LLMProvider):
 
     def __init__(self, config: dict):
         cfg = config.get("llm", {}) or {}
-        self.model_name = cfg.get("gemini_model", "gemini-2.0-flash")
+        self.model_name = cfg.get("gemini_model", "gemini-flash-latest")
         self.api_key = os.environ.get("GEMINI_API_KEY", "")
 
     def status(self) -> ProviderStatus:
