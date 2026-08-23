@@ -12,7 +12,9 @@ from elisha.tools import build_default_registry
 
 
 def make_fp(memory=False, permissions=False):
-    reg = build_default_registry({})
+    # delete_file/run_shell config kapılı — testlerde açıkça aç
+    cfg = {"tools": {"delete_file": {"enabled": True}, "run_shell": {"enabled": True}}}
+    reg = build_default_registry(cfg)
     mem = None
     if memory:
         from elisha.memory import MemoryStore

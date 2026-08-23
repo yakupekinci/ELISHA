@@ -12,7 +12,10 @@ from elisha.tools import build_default_registry
 class TestPermissions(unittest.TestCase):
     def setUp(self):
         self.pm = PermissionManager({"security": {"require_confirmation_for": ["HIGH", "CRITICAL"]}})
-        self.reg = build_default_registry({})
+        # delete_file config kapılı — test için açıkça etkinleştir
+        self.reg = build_default_registry({
+            "tools": {"delete_file": {"enabled": True}}
+        })
 
     def test_delete_yuksek_risk(self):
         self.assertTrue(self.pm.needs_confirmation(self.reg, "delete_file"))

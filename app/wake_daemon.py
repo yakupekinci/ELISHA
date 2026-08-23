@@ -126,6 +126,12 @@ def _run_openwakeword_loop(det, cfg):
             sd.wait()
             chunk = rec.flatten()
 
+            # Enerji kapısı: mutlak sessizlikte model çalıştırma (CPU + yanlış alarm azalt)
+            import numpy as _np
+            if float(_np.sqrt(_np.mean(chunk ** 2))) < 0.004:
+                consecutive_triggers = 0
+                continue
+
             pred = det._engine.predict(chunk)
             score = pred.get("hey_jarvis", 0.0)
 

@@ -16,6 +16,9 @@ audio:
   record_seconds: 6
   vad_aggressiveness: 2  # 0-3
   silence_threshold_ms: 900
+  # Barge-in (konuşurken söz kesme): konuşma algılama hassasiyeti
+  barge_threshold: 0.035   # RMS eşiği (düşük = daha hassas, yüksek = daha katı)
+  barge_grace_s: 0.8       # cevabın ilk kaç saniyesinde kesme dinlenmez
 
 stt:
   provider: auto  # auto | faster-whisper | whisper | mock

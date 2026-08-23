@@ -100,7 +100,9 @@ cat > "$LAUNCH_DIR/com.elisha.autostart.plist" << EOF
     <string>com.elisha.autostart</string>
     <key>ProgramArguments</key>
     <array>
-        <string>$ELISHA_ROOT/ELİŞA.command</string>
+        <string>$ELISHA_ROOT/venv/bin/python3</string>
+        <string>-u</string>
+        <string>$ELISHA_ROOT/app/desktop_app.py</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -109,10 +111,15 @@ cat > "$LAUNCH_DIR/com.elisha.autostart.plist" << EOF
         <key>SuccessfulExit</key>
         <false/>
     </dict>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    </dict>
     <key>StandardOutPath</key>
-    <string>/tmp/elisha-autostart.log</string>
+    <string>/tmp/elisha-app.log</string>
     <key>StandardErrorPath</key>
-    <string>/tmp/elisha-autostart.log</string>
+    <string>/tmp/elisha-app.log</string>
     <key>WorkingDirectory</key>
     <string>$ELISHA_ROOT</string>
 </dict>

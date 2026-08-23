@@ -286,13 +286,22 @@ def _clean_for_tts(text: str) -> str:
         t = cut[:last + 1] if last > 80 else cut.rsplit(' ', 1)[0] + '...'
     return t.strip()
 
-def _barge_monitor(proc, threshold=0.035, sustain_blocks=5, grace_s=0.8):
-    """TTS çalarken mikrofonu izle; kullanıcı konuşursa çalmayı kes (barge-in)."""
+def _barge_monitor(proc, threshold=None, sustain_blocks=5, grace_s=None):
+    """TTS çalarken mikrofonu izle; kullanıcı konuşursa çalmayı kes (barge-in).
+    Eşik ve bekleme config.yaml → audio.barge_threshold / barge_grace_s."""
     import numpy as np, time as _t
     try:
         import sounddevice as _sd
     except Exception:
         return
+    if threshold is None or grace_s is None:
+        try:
+            from elisha.config import load_config
+            acfg = load_config().get("audio", {})
+        except Exception:
+            acfg = {}
+        threshold = threshold if threshold is not None else float(acfg.get("barge_threshold", 0.035))
+        grace_s = grace_s if grace_s is not None else float(acfg.get("barge_grace_s", 0.8))
     block = int(16000 * 0.1)   # 100ms bloklar
     hit = 0
     try:
