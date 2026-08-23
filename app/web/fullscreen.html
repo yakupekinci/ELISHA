@@ -1649,8 +1649,8 @@
         cardSub.textContent = "BANA BİR ŞEY SÖYLE";
         playResponseChime(); // ← "cevap veriyorum" sesi
         setState(STATE.SPEAKING);
-        // server tarafında TTS zaten çalıyor; burada sadece speaking state göster
-        setTimeout(function() { setState(STATE.IDLE); }, 3500);
+        // Server TTS'in gerçek bitişini / barge-in'i izle
+        pollSpeaking();
 
       } catch(e) {
         // Fallback: basit /api/chat
@@ -1663,7 +1663,7 @@
           var j = await r2.json();
           botSpan.textContent = j.reply || "…";
           setState(STATE.SPEAKING);
-          setTimeout(function() { setState(STATE.IDLE); }, 3000);
+          pollSpeaking();
         } catch(e2) {
           botSpan.textContent = "Sunucuya bağlanılamadı.";
           setState(STATE.ERROR);
@@ -1674,6 +1674,33 @@
 
     /* ───── API: LISTEN (async STT) ───── */
     var listenPollTimer = null;
+
+    /* ───── SPEAKING takibi: TTS bitişi + barge-in ───── */
+    var _speakPollTimer = null;
+    function pollSpeaking() {
+      if (_speakPollTimer) clearInterval(_speakPollTimer);
+      var ticks = 0;
+      _speakPollTimer = setInterval(async function() {
+        ticks++;
+        try {
+          var r = await fetch("/api/barge", { method: "GET" });
+          var j = await r.json();
+          if (j.barge) {                       // kullanıcı söz kesti
+            clearInterval(_speakPollTimer); _speakPollTimer = null;
+            setState(STATE.IDLE);
+            showToast("🎙 Seni dinliyorum", 1500);
+            startListen();
+          } else if (!j.speaking) {            // TTS bitti
+            clearInterval(_speakPollTimer); _speakPollTimer = null;
+            setState(STATE.IDLE);
+          }
+        } catch(e) {}
+        if (ticks > 100) {                     // güvenlik: max ~30sn
+          clearInterval(_speakPollTimer); _speakPollTimer = null;
+          setState(STATE.IDLE);
+        }
+      }, 300);
+    }
 
     /* ───── WEB AUDIO CHIMES ───── */
     var _audioCtxChime = null;

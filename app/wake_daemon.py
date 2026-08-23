@@ -28,22 +28,30 @@ import numpy as np
 
 ENABLE_TTS_WAKE_RESPONSE = True  # uyandığında "Buyurun" desin
 
+def _blocked() -> bool:
+    """ELİŞA konuşurken veya dinlerken wake tetiklenmesin
+    (kendi sesini komut sanması = saçmalamanın ana kaynağı)."""
+    return (Path("/tmp/elisha_tts_active").exists()
+            or Path("/tmp/elisha_mic_active").exists())
+
 def ensure_gui():
     """GUI yoksa başlat, varsa öne getir"""
-    import subprocess, time
-    # pgrep ile kontrol
+    import subprocess, time, urllib.request
+    # Önce sağlık kontrolü: server ayaktaysa GUI çalışıyordur
     try:
-        out = subprocess.check_output(["pgrep", "-f", "app/desktop.py"], text=True)
-        if out.strip():
-            # var, öne getir (macOS)
-            try:
-                subprocess.run(["osascript", "-e", 'tell application "Python" to activate'], timeout=2)
-            except: pass
-            return True
-    except: pass
-    # yok, başlat
+        urllib.request.urlopen("http://localhost:8765/api/health", timeout=1)
+        try:
+            subprocess.run(["osascript", "-e", 'tell application "Python" to activate'], timeout=2)
+        except: pass
+        return True
+    except Exception:
+        pass
+    # Yok, başlat (venv python + doğru dosya adı)
+    root = Path(__file__).parent.parent
+    py = root / "venv" / "bin" / "python3"
+    cmd = str(py) if py.exists() else "python3"
     try:
-        subprocess.Popen(["nohup", "python3", "-u", "app/desktop.py"], cwd=str(Path(__file__).parent.parent), stdout=open("/tmp/elisa.log","a"), stderr=subprocess.STDOUT, start_new_session=True)
+        subprocess.Popen([cmd, "-u", "app/desktop_app.py"], cwd=str(root), stdout=open("/tmp/elisa.log","a"), stderr=subprocess.STDOUT, start_new_session=True)
         print("GUI başlatıldı")
         time.sleep(3)
         return True
@@ -109,8 +117,8 @@ def _run_openwakeword_loop(det, cfg):
     required_consecutive = 2  # 2 ardışık pozitif → tetikle (yanlış alarm azalt)
 
     while True:
-        if not Path("/tmp/elisha_wake_enabled").exists():
-            time.sleep(1)
+        if not Path("/tmp/elisha_wake_enabled").exists() or _blocked():
+            time.sleep(0.5)
             continue
         try:
             # 80ms kayıt
@@ -153,8 +161,8 @@ def _run_stt_wake_loop(det, cfg):
 
     consecutive = 0
     while True:
-        if not Path("/tmp/elisha_wake_enabled").exists():
-            time.sleep(1)
+        if not Path("/tmp/elisha_wake_enabled").exists() or _blocked():
+            time.sleep(0.5)
             continue
         try:
             sr = 16000

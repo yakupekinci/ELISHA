@@ -112,6 +112,15 @@ class ELISHABar(rumps.App):
         rumps.alert(title="ELİŞA Durum", message=msg, ok="Tamam")
 
     def quit_all(self, _):
+        # 1) Desktop app'e temiz çıkış sinyali (exit 0 → launchd diriltmez)
+        try: pathlib.Path("/tmp/elisha_quit").write_text("1")
+        except Exception: pass
+        # 2) Wake daemon'ı durdur (yoksa 'hey elişa' ile tekrar açılır)
+        import subprocess as _sp
+        uid = os.getuid()
+        _sp.run(["launchctl", "bootout", f"gui/{uid}/com.elisha.wake"],
+                capture_output=True, timeout=5)
+        _sp.run(["pkill", "-f", "wake_daemon"], capture_output=True, timeout=5)
         try: ENABLE.unlink()
         except Exception: pass
         rumps.quit_application(None)

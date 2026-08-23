@@ -105,7 +105,10 @@ cat > "$LAUNCH_DIR/com.elisha.autostart.plist" << EOF
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
-    <false/>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
     <key>StandardOutPath</key>
     <string>/tmp/elisha-autostart.log</string>
     <key>StandardErrorPath</key>

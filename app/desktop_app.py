@@ -5,10 +5,30 @@ ELİŞA — Siri tarzı gizli asistan (v3)
 - X simgesi: gizle | - simgesi: gizle (pencereyi kapatmaz, background'da çalışmaya devam)
 Çalıştır: python3 app/desktop_app.py
 """
-import threading, time, subprocess, sys, json, urllib.request, os, atexit
+import threading, time, subprocess, sys, json, urllib.request, os, atexit, signal
 from pathlib import Path
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
+
+# ── Temiz çıkış: launchd KeepAlive(SuccessfulExit=false) crash'de diriltir,
+#    düzgün çıkışta (exit 0) dokunmaz. SIGTERM = kullanıcı kapattı demektir.
+_QUIT_FLAG = Path("/tmp/elisha_quit")
+try: _QUIT_FLAG.unlink(missing_ok=True)  # önceki oturumdan kalıntı varsa temizle
+except Exception: pass
+
+def _graceful_exit(*_a):
+    try: _APP_LOCK.unlink(missing_ok=True)
+    except Exception: pass
+    # Menü bar da kapansın (tam kapanış)
+    try: subprocess.run(["pkill", "-f", "app/menubar.py"], capture_output=True, timeout=5)
+    except Exception: pass
+    print("👋 ELİŞA kapanıyor (temiz çıkış)")
+    # NOT: sys.exit() Cocoa event loop içinde NSException→abort(134) olur,
+    # launchd bunu crash sanıp diriltir. os._exit kod 0 ile garantili çıkar.
+    os._exit(0)
+
+signal.signal(signal.SIGTERM, _graceful_exit)
+signal.signal(signal.SIGINT, _graceful_exit)
 
 # ── API anahtarlarını güvenli dosyadan yükle ───────────────────────────────
 _secrets_file = Path.home() / ".config" / "elisha" / "secrets.env"
@@ -285,6 +305,11 @@ window.events.loaded += on_loaded
 def poll():
     while True:
         try:
+            # Menü bar "Çıkış" → tüm uygulama temiz kapansın
+            if _QUIT_FLAG.exists():
+                try: _QUIT_FLAG.unlink()
+                except Exception: pass
+                _graceful_exit()
             if HIDE_FILE.exists():
                 try: HIDE_FILE.unlink()
                 except Exception: pass

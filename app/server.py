@@ -134,6 +134,17 @@ def _is_hallucination(text: str) -> bool:
     return False
 
 def _do_listen(rid: str, duration: float):
+    # Wake daemon kayıt+transkripsiyon boyunca tetiklenmesin (çift dinleme çakışması)
+    import numpy as np
+    try: _MIC_ACTIVE_FLAG.write_text("1")
+    except Exception: pass
+    try:
+        _do_listen_inner(rid, duration)
+    finally:
+        try: _MIC_ACTIVE_FLAG.unlink(missing_ok=True)
+        except Exception: pass
+
+def _do_listen_inner(rid: str, duration: float):
     import numpy as np
     # Anında uyarı sesi: "dinliyorum" hissi
     _play_chime("wake")
@@ -222,11 +233,23 @@ def get_piper():
     with _piper_lock:
         if _piper_voice is None:
             from piper import PiperVoice
-            model = Path("./voices/tr_TR-dfki-medium.onnx").resolve()
+            # Seçili cinsiyete göre model çözümle (tts.set_gender ile senkron)
+            try:
+                gender = get_bot().tts.gender
+            except Exception:
+                gender = "female"
+            catalog = {
+                "female": "tr_TR-dfki-medium.onnx",
+                "male": "tr_TR-fahrettin-medium.onnx",
+            }
+            model = (Path("./voices") / catalog.get(gender, catalog["female"])).resolve()
             if not model.exists():
-                raise FileNotFoundError(f"piper model yok: {model}")
+                alt = Path("./voices/tr_TR-dfki-medium.onnx").resolve()
+                if not alt.exists():
+                    raise FileNotFoundError(f"piper model yok: {model}")
+                model = alt
             _piper_voice = PiperVoice.load(str(model))
-            log("TTS", "Piper cache'lendi")
+            log("TTS", f"Piper cache'lendi ({model.stem})")
     return _piper_voice
 
 # LLM chat lock — aynı anda tek istek işlensin (Ollama güvenliği)
@@ -235,47 +258,122 @@ _chat_lock = threading.Lock()
 # TTS lock — aynı anda tek ses çalsın
 _tts_lock = threading.Lock()
 
-def _speak_async(text: str):
-    """Cevabı seslendir: Piper (en iyi) → pyttsx3 (yedek)."""
-    clean = text.strip()[:400]
+# Konuşma durumu — barge-in ve UI senkronizasyonu için
+_speak_state = {"active": False, "barge": False}
+
+_TTS_MUTE_FLAG = Path("/tmp/elisha_tts_active")
+_MIC_ACTIVE_FLAG = Path("/tmp/elisha_mic_active")
+_BARGE_FLAG = Path("/tmp/elisha_barge")
+
+def _clean_for_tts(text: str) -> str:
+    """LLM cevabını seslendirmeye uygun hale getir: markdown/kod/URL temizle."""
     import re as _re
-    clean = _re.sub(r'\[ACTION:[^\]]+\]', '', clean).strip()
+    t = text.strip()
+    t = _re.sub(r'\[ACTION:[^\]]+\]', '', t)
+    t = _re.sub(r'```[\s\S]*?```', ' kod örneği hazırladım. ', t)   # kod blokları okunmaz
+    t = _re.sub(r'`[^`\n]+`', '', t)                                 # inline kod
+    t = _re.sub(r'https?://\S+', '', t)                              # URL'ler harf harf okunur
+    t = _re.sub(r'^#{1,6}\s*', '', t, flags=_re.M)                   # başlıklar
+    t = _re.sub(r'(\*\*|__|\*|_)', '', t)                            # kalın/italik işaretleri
+    t = _re.sub(r'^\s*[-*+]\s+', '', t, flags=_re.M)                 # liste imleri
+    t = _re.sub(r'[\U0001F300-\U0001FAFF\u2600-\u27BF\uFE0F]', '', t)  # emoji
+    t = _re.sub(r'[ \t]+', ' ', t)
+    t = _re.sub(r'\n{2,}', '. ', t).replace('\n', ' ').strip()
+    # Cümle sınırında kes (kelime ortasından değil)
+    if len(t) > 320:
+        cut = t[:320]
+        last = max(cut.rfind('.'), cut.rfind('!'), cut.rfind('?'), cut.rfind(':'))
+        t = cut[:last + 1] if last > 80 else cut.rsplit(' ', 1)[0] + '...'
+    return t.strip()
+
+def _barge_monitor(proc, threshold=0.035, sustain_blocks=5, grace_s=0.8):
+    """TTS çalarken mikrofonu izle; kullanıcı konuşursa çalmayı kes (barge-in)."""
+    import numpy as np, time as _t
+    try:
+        import sounddevice as _sd
+    except Exception:
+        return
+    block = int(16000 * 0.1)   # 100ms bloklar
+    hit = 0
+    try:
+        _t.sleep(grace_s)      # ilk hece + chime geçsin (kendi sesi tetiklemesin)
+        while proc.poll() is None and _speak_state["active"]:
+            rec = _sd.rec(block, samplerate=16000, channels=1, dtype='float32')
+            _sd.wait()
+            rms = float(np.sqrt(np.mean(rec.flatten() ** 2)))
+            if rms > threshold:
+                hit += 1
+                if hit >= sustain_blocks:
+                    print(f"[BARGE] 🛑 konuşma algılandı (rms={rms:.3f}) — seslendirme kesildi")
+                    _speak_state["barge"] = True
+                    try: _BARGE_FLAG.write_text("1")
+                    except Exception: pass
+                    try: proc.terminate()
+                    except Exception: pass
+                    return
+            else:
+                hit = max(0, hit - 1)
+    except Exception as e:
+        log("BARGE", f"izleyici durdu: {e}")
+
+def _speak_async(text: str):
+    """Cevabı seslendir: Piper (en iyi) → pyttsx3 (yedek).
+    Sırasında: wake daemon susturulur + kullanıcı sözü keserse barge-in."""
+    clean = _clean_for_tts(text)
     if len(clean) < 2:
         return
-    # Cevap öncesi hafif uyarı sesi
-    _play_chime("response")
-    with _tts_lock:
-        # 1. Piper dene
-        try:
-            import numpy as np, soundfile as sf, tempfile, subprocess as _sp
-            voice = get_piper()
-            chunks = list(voice.synthesize(clean))
-            if chunks:
-                audio = np.concatenate([np.array(c.audio_float_array) for c in chunks])
-                sr = chunks[0].sample_rate
-                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
-                    wav_path = tf.name
-                    sf.write(wav_path, audio, sr)
-                _sp.run(["afplay", wav_path], stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
-                from pathlib import Path as _P
-                try: _P(wav_path).unlink()
-                except: pass
-                return
-        except Exception:
-            pass  # Piper yok, pyttsx3'e düş
-        # 2. pyttsx3 yedek
-        try:
-            import pyttsx3
-            engine = pyttsx3.init()
-            voices = engine.getProperty('voices')
-            for v in voices:
-                if 'tr' in (v.languages[0] if v.languages else b'').lower() if hasattr(v.languages[0] if v.languages else b'', 'lower') else False:
-                    engine.setProperty('voice', v.id); break
-            engine.setProperty('rate', 180)
-            engine.say(clean)
-            engine.runAndWait()
-        except Exception as e:
-            log("TTS", f"pyttsx3 hata: {e}")
+    # Wake daemon'ı sustur (chime dahil tüm süre)
+    try: _TTS_MUTE_FLAG.write_text("1")
+    except Exception: pass
+    _speak_state["active"] = True
+    _speak_state["barge"] = False
+    try: _BARGE_FLAG.unlink(missing_ok=True)
+    except Exception: pass
+    try:
+        # Cevap öncesi hafif uyarı sesi
+        _play_chime("response")
+        played = False
+        with _tts_lock:
+            # 1. Piper dene
+            try:
+                import numpy as np, soundfile as sf, tempfile, subprocess as _sp
+                voice = get_piper()
+                chunks = list(voice.synthesize(clean))
+                if chunks:
+                    audio = np.concatenate([np.array(c.audio_float_array) for c in chunks])
+                    sr = chunks[0].sample_rate
+                    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
+                        wav_path = tf.name
+                        sf.write(wav_path, audio, sr)
+                    proc = _sp.Popen(["afplay", wav_path],
+                                     stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+                    played = True
+                    # Barge-in izleyici (kullanıcı üstten konuşursa kes)
+                    threading.Thread(target=_barge_monitor, args=(proc,), daemon=True).start()
+                    proc.wait()
+                    from pathlib import Path as _P
+                    try: _P(wav_path).unlink()
+                    except Exception: pass
+            except Exception:
+                pass  # Piper yok, pyttsx3'e düş
+            # 2. pyttsx3 yedek
+            if not played:
+                try:
+                    import pyttsx3
+                    engine = pyttsx3.init()
+                    voices = engine.getProperty('voices')
+                    for v in voices:
+                        if 'tr' in (v.languages[0] if v.languages else b'').lower() if hasattr(v.languages[0] if v.languages else b'', 'lower') else False:
+                            engine.setProperty('voice', v.id); break
+                    engine.setProperty('rate', 180)
+                    engine.say(clean)
+                    engine.runAndWait()
+                except Exception as e:
+                    log("TTS", f"pyttsx3 hata: {e}")
+    finally:
+        _speak_state["active"] = False
+        # yankı kuyruğu bitmeden wake'i açma
+        threading.Timer(0.6, lambda: _TTS_MUTE_FLAG.unlink(missing_ok=True)).start()
 
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
@@ -320,6 +418,15 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             if parsed.path == "/api/health":
                 self._json(200, {"ok": True})
+                return
+            if parsed.path == "/api/barge":
+                # UI konuşma bitişini ve söz kesmeyi buradan öğrenir
+                barge = _speak_state["barge"]
+                if barge:
+                    _speak_state["barge"] = False
+                    try: _BARGE_FLAG.unlink(missing_ok=True)
+                    except Exception: pass
+                self._json(200, {"speaking": _speak_state["active"], "barge": barge})
                 return
             if parsed.path == "/api/wake_check":
                 p = Path("/tmp/elisha_wake")
