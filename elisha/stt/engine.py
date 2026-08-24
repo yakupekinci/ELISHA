@@ -20,6 +20,16 @@ INITIAL_PROMPT_TR = (
     "Türkçe özel: şarkı, müzik, çalıştır, güncelle, indir, yükle."
 )
 
+# Hotwords: decode sırasında bu kelimelere önyargı uygulanır (faster-whisper 1.0.2+).
+# initial_prompt'tan daha doğrudan etki — kısa komutlarda yanlış tanımayı azaltır.
+HOTWORDS_TR = (
+    "elişa, elisha, elisa, hey elişa, chrome, safari, spotify, youtube, whatsapp,"
+    " github, terminal, finder, vscode, ses aç, sesi kıs, sessize al,"
+    " ekran görüntüsü, hava durumu, saat kaç, tarih ne, hatırlatıcı, not al,"
+    " müzik çal, şarkı, internette ara, konumum, masaüstü, indirilenler,"
+    " istanbul, izmir, ankara"
+)
+
 # ─── Whisper post-processing: bilinen hatalar ────────────────────────────
 # Whisper Türkçe'de bazı kelimeleri sürekli yanlış yazar
 _TR_CORRECTIONS = {
@@ -150,6 +160,7 @@ class STTEngine:
                     patience=1.5,               # beam search'te daha sabırlı
                     temperature=0.0,            # deterministik (ilk denemede)
                     initial_prompt=INITIAL_PROMPT_TR,
+                    hotwords=HOTWORDS_TR,       # komut kelimelerine decode önyargısı
                     no_speech_threshold=0.4,    # 0.3→0.4: sessizliği daha iyi ayıkla
                     log_prob_threshold=-0.8,    # düşük kaliteli segment'leri filtrele
                     condition_on_previous_text=False,

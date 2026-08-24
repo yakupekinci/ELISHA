@@ -75,7 +75,8 @@ def _ensure_ollama():
             return False
 
     if _is_running():
-        print("✅ Ollama zaten çalışıyor.")
+        # ELİŞA.command zaten kontrol edip yazdı — sessizce onayla
+        # (çift "zaten çalışıyor" mesajını önler)
         return True
 
     print("🚀 Ollama başlatılıyor...")
@@ -141,6 +142,11 @@ ENABLE_FILE.write_text("1")
 def start_server():
     from http.server import ThreadingHTTPServer
     from app.server import Handler
+    try:
+        from app.server import ensure_mic_monitor
+        ensure_mic_monitor()          # UI küre animasyonu için canlı RMS
+    except Exception:
+        pass                          # monitör kritik değil
     httpd = ThreadingHTTPServer(("", 8765), Handler)
     httpd.daemon_threads = True
     print("server :8765")
@@ -183,12 +189,66 @@ STATE = {"visible": False, "last": 0, "window_ready": False}
 window = None  # sonra atanacak
 
 # ── JS API köprüsü ─────────────────────────────────────────────────────────
+def _request_tcc_perms():
+    """macOS Kamera iznini GUI sürecinden iste — diyalog pencerenin üstünde çıkar."""
+    def work():
+        try:
+            import AVFoundation as AV
+            st = AV.AVCaptureDevice.authorizationStatusForMediaType_(AV.AVMediaTypeVideo)
+            if st != 3:  # izinli değilse diyalog açılır
+                AV.AVCaptureDevice.requestAccessForMediaType_completionHandler_(
+                    AV.AVMediaTypeVideo,
+                    lambda g: print(f"[TCC] kamera yanıtı: {g}"))
+        except Exception as e:
+            print(f"[TCC] kamera isteği hatası: {e}")
+    import threading
+    threading.Thread(target=work, daemon=True).start()
+
+
+def _retry_cam_if_denied(granted):
+    """Diyalog bastırıldıysa (False ama durum hâlâ 'belirlenmedi') 8sn sonra tekrar dene."""
+    def work():
+        time.sleep(8)
+        try:
+            import AppKit, AVFoundation as AV
+            st = AV.AVCaptureDevice.authorizationStatusForMediaType_(AV.AVMediaTypeVideo)
+            if st == 3 or granted:
+                return
+            AppKit.NSApp.activateIgnoringOtherApps_(True)
+            print("[TCC] tekrar deneniyor — diyaloğu görüp 'İzin Ver'e bas")
+            AV.AVCaptureDevice.requestAccessForMediaType_completionHandler_(
+                AV.AVMediaTypeVideo, lambda g: print(f"[TCC] kamera yanıtı(2): {g}"))
+        except Exception as e:
+            print(f"[TCC] yeniden deneme hatası: {e}")
+    import threading
+    threading.Thread(target=work, daemon=True).start()
+
+
 class ElishaApi:
     """pywebview.api üzerinden JS'e açılan Python metotları."""
 
     # Pencereyi gizle — X ve − butonları her ikisi de buraya bağlı
     def hide_app(self):
         threading.Thread(target=do_hide, daemon=True).start()
+        return "ok"
+
+    # Kamera izni — JS'ten (kullanıcı tıklamasıyla) çağrılır
+    def request_cam(self):
+        def work():
+            try:
+                import AppKit
+                import AVFoundation as AV
+                st = AV.AVCaptureDevice.authorizationStatusForMediaType_(AV.AVMediaTypeVideo)
+                if st == 3:
+                    print("[TCC] kamera zaten izinli")
+                    return
+                AppKit.NSApp.activateIgnoringOtherApps_(True)
+                AV.AVCaptureDevice.requestAccessForMediaType_completionHandler_(
+                    AV.AVMediaTypeVideo,
+                    lambda g: print(f"[TCC] kamera yanıtı(tık): {g}"))
+            except Exception as e:
+                print(f"[TCC] istek hatası: {e}")
+        threading.Thread(target=work, daemon=True).start()
         return "ok"
 
     # winClose() ve winMinimize() de hide_app çağırır (uygulama arka planda devam eder)
@@ -203,6 +263,23 @@ class ElishaApi:
     # Hareketsizlik sayacını sıfırla (her 5sn JS'den çağrılır)
     def keep_alive(self):
         STATE["last"] = time.time()
+        return "ok"
+
+    # ── Pencere sürükleme (frameless başlıksız pencere) ──
+    def drag(self, dx: float, dy: float):
+        try:
+            window.move(int(window.x + dx), int(window.y + dy))
+        except Exception:
+            pass
+        return "ok"
+
+    def save_pos(self):
+        try:
+            import json as _json
+            _json.dump({"x": window.x, "y": window.y},
+                       open("/tmp/elisha_window.json", "w"))
+        except Exception:
+            pass
         return "ok"
 
     # Sayfa geçişleri
@@ -224,6 +301,12 @@ class ElishaApi:
             return _js.loads(r.read())
         except Exception:
             return {}
+
+    # Wake tek tüketici: server /api/wake_check dosyayı tüketir ve JS tetikler;
+    # bu metot sadece pencereyi öne getirir (JS enjeksiyonu yok → çift startListen olmaz)
+    def wake_show(self):
+        threading.Thread(target=do_show, args=("",), daemon=True).start()
+        return "ok"
 
 # ── Pencere ────────────────────────────────────────────────────────────────
 try:
@@ -247,10 +330,19 @@ setTimeout(function(){window.location.href='http://localhost:8765/fullscreen.htm
 </script></body></html>
 """
 
+# Kayıtlı pencere konumu (varsa)
+try:
+    import json as _posjson
+    _saved_pos = _posjson.load(open("/tmp/elisha_window.json"))
+    _POS_X, _POS_Y = int(_saved_pos["x"]), int(_saved_pos["y"])
+except Exception:
+    _POS_X, _POS_Y = None, None
+
 window = webview.create_window(
     "ELİŞA",
     html=_SPLASH_HTML,
     width=_W, height=_H,
+    x=_POS_X, y=_POS_Y,
     frameless=True,
     resizable=False,
     on_top=True,
@@ -268,8 +360,7 @@ def do_hide():
     STATE["visible"] = False
 
 def do_show(reason: str = ""):
-    try: window.move(0, 0)
-    except Exception: pass
+    # Kullanıcının yerleştirdiği konumu koru — artık (0,0)'a zorlamıyoruz
     try: window.show()
     except Exception: pass
     STATE["visible"] = True
@@ -314,14 +405,8 @@ def poll():
                 try: HIDE_FILE.unlink()
                 except Exception: pass
                 do_hide()
-            elif WAKE_FILE.exists() and ENABLE_FILE.exists():
-                try:
-                    txt = WAKE_FILE.read_text().strip()
-                    WAKE_FILE.unlink()
-                except Exception:
-                    txt = "wake"
-                print(f"✨ wake: {txt}")
-                do_show(txt)
+            # NOT: WAKE_FILE burada TÜKETİLMEZ — /api/wake_check tek sahibi.
+            # Çift tüketici yarışı panelin gizli kalıp görünmez dinlemesine yol açıyordu.
             # 60sn hareketsizlikte otomatik gizle
             if STATE["visible"] and (time.time() - STATE["last"]) > 60:
                 do_hide()
@@ -336,6 +421,30 @@ print("✨ ELİŞA gizli modda — menü çubuğundaki ikona bas veya 'hey eliş
 # ── Dock gizle KALDIRILDI — artık Dock'ta görünür, güzel ikonla ────────────
 def _post_start():
     time.sleep(0.5)
+    # macOS Kamera izni — GUI hazır olunca iste (diyalog pencerenin üstünde çıkar)
+    if sys.platform == "darwin":
+        try:
+            import AppKit
+            import AVFoundation as AV
+            st = AV.AVCaptureDevice.authorizationStatusForMediaType_(AV.AVMediaTypeVideo)
+            if st != 3:
+                # Uygulamayı ön plana al — arka plan sürecinde TCC diyaloğu bastırılıyor
+                try:
+                    AppKit.NSApp.activateIgnoringOtherApps_(True)
+                    if window:
+                        try:
+                            window.evaluate_js("window.focus && window.focus()")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                time.sleep(0.8)
+                AV.AVCaptureDevice.requestAccessForMediaType_completionHandler_(
+                    AV.AVMediaTypeVideo,
+                    lambda g: print(f"[TCC] kamera yanıtı: {g}") or _retry_cam_if_denied(g))
+                print("[TCC] kamera izni istendi — diyaloğa 'İzin Ver' de")
+        except Exception as e:
+            print(f"[TCC] kamera: {e}")
     # Dock ikonu ayarla (NSApp artık mevcut)
     if sys.platform == "darwin":
         try:

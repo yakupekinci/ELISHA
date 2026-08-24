@@ -77,9 +77,9 @@ class ELISHABar(rumps.App):
         sender.title = label
         try:
             import urllib.request, json
-            url = "http://localhost:8765/api/settings/tts"
+            url = "http://localhost:8765/api/settings"   # doğru endpoint (/api/settings/tts yoktu → 404)
             req = urllib.request.Request(
-                url, data=json.dumps({"enabled": self._tts_on}).encode(),
+                url, data=json.dumps({"tts_enabled": self._tts_on}).encode(),
                 headers={"Content-Type": "application/json"}, method="POST")
             urllib.request.urlopen(req, timeout=1)
         except Exception:

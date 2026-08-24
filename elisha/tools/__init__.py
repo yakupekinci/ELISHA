@@ -7,12 +7,18 @@ def build_default_registry(config: dict, memory_store=None) -> ToolRegistry:
         GetTimeTool, GetDateTool, GetSystemInfoTool, SetVolumeTool,
         OpenApplicationTool, CloseApplicationTool, TakeScreenshotTool,
         PlayMusicTool, OpenUrlTool, GetLocationTool,
+        SetReminderTool, CreateNoteTool, BatteryTool, ScreenContextTool,
+        SetWatchTopicsTool, SystemLoadTool, AutostartTool,
     )
     from .file_tools import (
         ListFilesTool, ReadFileTool, CreateFileTool, WriteFileTool,
         CopyFileTool, MoveFileTool, DeleteFileTool,
     )
     from .web_tools import WebSearchTool, FetchWebpageTool
+    from .vision_tools import AnalyzeScreenTool
+    from .extra_tools import (YouTubePlayTool, SendMessageTool, GameUpdateTool,
+                              FlightFinderTool, AnalyzeCameraTool, DashboardTool)
+    from .media_tools import MediaControlTool, AppManagerTool
 
     # Engellenen araçlar (config'ten, hiç register edilmez → LLM göremez)
     blocked = set((config or {}).get("security", {}).get("blocked_tools", []))
@@ -24,9 +30,17 @@ def build_default_registry(config: dict, memory_store=None) -> ToolRegistry:
         SetVolumeTool(config), OpenApplicationTool(config), CloseApplicationTool(config),
         TakeScreenshotTool(config), PlayMusicTool(config), OpenUrlTool(config),
         GetLocationTool(config),
+        SetReminderTool(config), CreateNoteTool(config),
+        BatteryTool(config), ScreenContextTool(config),
+        SetWatchTopicsTool(config), SystemLoadTool(config),
+        AutostartTool(config),
+        YouTubePlayTool(config), SendMessageTool(config), GameUpdateTool(config),
+        FlightFinderTool(config), AnalyzeCameraTool(config), DashboardTool(config),
+        MediaControlTool(config), AppManagerTool(config),
         ListFilesTool(config), ReadFileTool(config), CreateFileTool(config),
         WriteFileTool(config), CopyFileTool(config), MoveFileTool(config),
         WebSearchTool(config), FetchWebpageTool(config),
+        AnalyzeScreenTool(config),
     ]
 
     # DeleteFileTool — yalnızca açıkça izin verilmişse register et
@@ -38,6 +52,20 @@ def build_default_registry(config: dict, memory_store=None) -> ToolRegistry:
         if tool.name in blocked:
             continue  # bloklanmış → atla
         reg.register(tool)
+
+    # ── EKLENTİLER: plugins/ klasörüne düşen .py dosyaları otomatik araç olur ──
+    # (desen: FatihMakes/Mark-LI plugin sistemi — kırık plugin asla düşürmez)
+    try:
+        from pathlib import Path as _P
+        from ..plugin_loader import discover_plugins, make_plugin_tool
+        core_names = ({t.name for t in all_tools}
+                      | {"remember", "recall", "forget", "run_shell",
+                         "delete_file", "analyze_screen"})
+        for rec in discover_plugins(_P("plugins"), core_names).values():
+            if rec.name not in blocked:
+                reg.register(make_plugin_tool(rec, config))
+    except Exception as _pe:
+        print(f"⚠️ Plugin sistemi yüklenemedi: {_pe}")
 
     if memory_store is not None:
         from .memory_tools import RememberTool, RecallTool, ForgetTool

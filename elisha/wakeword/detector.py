@@ -13,6 +13,24 @@ class WakeWordDetector:
         if not self.enabled:
             print("ℹ️ WakeWord: kapalı (butonla tetiklenecek)")
             return
+        # 0) ÖZEL MODEL: data/wakeword/*.onnx varsa öncelikli kullan
+        #    (openwakeword.com/train ile eğitilen 'hey elişa' modeli buraya konur)
+        from pathlib import Path as _P
+        _custom_dir = _P("data") / "wakeword"
+        _custom_models = sorted(_custom_dir.glob("*.onnx")) if _custom_dir.exists() else []
+        if _custom_models:
+            try:
+                from openwakeword.model import Model
+                self._engine = Model(
+                    wakeword_models=[str(p) for p in _custom_models],
+                    inference_framework="onnx",
+                )
+                self._custom_names = [p.stem for p in _custom_models]
+                print(f"✅ WakeWord: ÖZEL model yüklendi → {[p.name for p in _custom_models]}")
+                self._mode = "openwakeword"
+                return
+            except Exception as e:
+                print(f"⚠️ Özel wake word modeli yüklenemedi ({e}) → hazır modellere dönülüyor")
         # 1) openwakeword dene (hey_jarvis) — onnxruntime backend ile
         try:
             from openwakeword.model import Model
@@ -59,29 +77,25 @@ class WakeWordDetector:
             return False
 
     def check_text_trigger(self, text: str) -> bool:
-        """Sadece 'hey elişa uyan' ile uyansın - Siri gibi. Diğerleri tetiklemez."""
+        """'hey elişa', 'elişa uyan' veya kısa cümle içinde isim geçmesiyle uyansın."""
         t = text.lower().strip()
-        # Ana tetik: hey elişa uyan (tüm varyantlar)
-        wake_variants = [
-            "hey elişa uyan", "hey elisha uyan", "hey elisa uyan",
-            "elişa uyan", "elisha uyan", "elisa uyan",
-            # kısaltma ama sadece uyan kelimesi varsa
-        ]
-        if any(w in t for w in wake_variants):
+        # Türkçe telaffuz varyantları (whisper 'elişa'yı farklı yazabilir)
+        name_hits = ["elişa", "elişam", "elisha", "elisa", "ilişa", "elişo", "eliş",
+                     "elisa", "eli za", "e lisha", "lisa"]
+        has_name = any(n in t for n in name_hits)
+        if not has_name:
+            return False
+        has_hey = "hey" in t or "ey" in t.split()[:1]
+        has_wake = "uyan" in t or "uyandin" in t
+        # 1) isim + uyan → kesin uyandır
+        if has_wake:
             return True
-        # uyansız versiyon sadece "uyan" yoksa da kabul et ama daha katı (tam hey + isim)
-        # Kullanıcı "hey elişa" derse de uyansın (kolaylık)
-        has_hey = "hey" in t
-        has_name = any(n in t for n in ["elişa", "elisha", "elisa", "lisa", "isa", "isha"])
-        has_wake = "uyan" in t or "oyan" in t or "uyan," in t
-        if has_hey and has_name and has_wake:
+        # 2) hey + isim → klasik tetik ("hey elişa saat kaç" dahil — komut akar)
+        if has_hey:
             return True
-        if has_hey and has_name and len(t.split()) <= 3:  # "hey elişa" kısa ve nets
-            # kısa "hey elişa" da kabul, ama "hey elişa saat kaç" gibi komut değil sadece uyandırma
-            # komut içinde hey varsa orayı check_text_trigger değil, orchestrator strip edecek
-            # burada sadece uyandırma için: 2 kelime ise uyandır
-            if t.strip() in ["hey elişa", "hey elisha", "hey elisa", "elişa", "elisha"]:
-                return True
+        # 3) yalnızca kısa ütterance'ta çıplak isim ("elişa?" gibi) → uyandır
+        if len(t.split()) <= 4:
+            return True
         return False
 
     def strip_wake_word(self, text: str) -> str:

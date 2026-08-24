@@ -54,3 +54,13 @@ config.local.yaml
 
 # Piper cache
 piper_cache/
+
+# Üçüncü taraf vendor klonları (Mark-LI / Mark-XXXIX-OR)
+vendor/
+
+# Piper ses modelleri — README'deki komutla indirilir
+voices/*.onnx
+
+# Loglar ve geçici
+*.log
+tmp/

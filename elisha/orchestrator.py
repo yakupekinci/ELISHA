@@ -230,8 +230,8 @@ class ElishaOrchestrator:
                 log("FASTPATH", f"⚡ {fast[:120]}")
                 self.llm.history.append({"role": "user", "content": text})
                 self.llm.history.append({"role": "assistant", "content": fast})
-                if len(self.llm.history) > 10:
-                    self.llm.history = self.llm.history[-10:]
+                if len(self.llm.history) > 30:
+                    self.llm.history = self.llm.history[-30:]
                 log("CHAT", f"🤖 {fast}")
                 return fast
 
@@ -374,42 +374,52 @@ class ElishaOrchestrator:
     @staticmethod
     def _is_smalltalk(text_lower: str) -> bool:
         """Basit selamlamaları ve sohbet cümlelerini algıla.
-        
-        Bunlar agent'a (21 tool ile) gönderilmemeli — doğrudan LLM'e
+
+        Bunlar agent'a (27 tool ile) gönderilmemeli — doğrudan LLM'e
         tool'suz giderse hem daha hızlı hem daha doğal cevap verir.
+        Ayrıca halüsinasyonu önler: selama araç çağrısı karışmamalı.
         """
         t = text_lower.strip()
         # Çok uzun cümleler sohbet değil, muhtemelen karmaşık istek
         if len(t) > 80:
             return False
-        
+
+        # Asistan adını soy ("naber elişa" → "naber") — selam + isim hâlâ sohbettir
+        import re as _re0
+        t_norm = _re0.sub(r"\b(eli[sş]a|elisha|jarvis|be|lan)\b", " ", t)
+        t_norm = _re0.sub(r"\s+", " ", t_norm).strip()
+
         # Doğrudan selamlama kalıpları
         _GREETINGS = {
             "merhaba", "selam", "selamlar", "günaydın", "gunaydin",
             "iyi akşamlar", "iyi aksamlar", "iyi geceler",
             "iyi günler", "iyi gunler", "hayırlı sabahlar",
             "naber", "nbr", "ne haber", "napıyorsun", "napiyon",
-            "hoş geldin", "hos geldin", "hoşgeldin",
+            "nasılsın", "nasilsin", "hoş geldin", "hos geldin", "hoşgeldin",
         }
-        if t in _GREETINGS:
+        if t_norm in _GREETINGS or t in _GREETINGS:
             return True
-        
+
         # Sohbet/hal hatır kalıpları (regex)
         _SMALLTALK_PATTERNS = [
-            r"^(merhaba|selam|günaydın|iyi (akşam|gece|gün)ler?)\b",
+            r"^(merhaba|selam|selamlar|günaydın|iyi (akşam|gece|gün)ler?)\b",
             r"^nasılsın\b", r"^nasilsin\b", r"^nasıl gidiyor\b",
-            r"^ne yapıyorsun\b", r"^ne yapiyorsun\b",
+            r"^naber\b", r"^nbr\b", r"^ne haber\b",
+            r"^napıyorsun\b", r"^napiyon\b", r"^ne yapıyorsun\b", r"^ne yapiyorsun\b",
             r"^iyisin\b", r"^iyi misin\b",
             r"^teşekkür", r"^tesekkur", r"^sağ ?ol\b", r"^eyvallah\b",
             r"^görüşürüz\b", r"^gorusuruz\b", r"^hoşça ?kal\b",
             r"^iyi geceler\b", r"^bay bay\b", r"^bye\b",
             r"^canın sağ ?olsun\b", r"^olsun\b",
-            r"^tamam\b$", r"^ok\b$", r"^anladım\b$",
+            r"^tamam$", r"^ok$", r"^anladım$",
             r"^seni seviyorum\b", r"^çok teşekkürler\b",
             r"^adın ne", r"^sen kimsin",
         ]
         import re as _re
         for pat in _SMALLTALK_PATTERNS:
+            # normalize edilmiş metinde ara (asistan adı sadeleştirilmiş)
+            if _re.search(pat, t_norm):
+                return True
             if _re.search(pat, t):
                 # Ama eğer sonrasında komut belirtisi varsa sohbet değil
                 # ör: "merhaba chrome aç" → komut, sohbet değil
@@ -418,7 +428,7 @@ class ElishaOrchestrator:
                 if any(h in t for h in _COMMAND_HINTS):
                     return False
                 return True
-        
+
         return False
 
     def run_cli_once(self, text: str, speak=False) -> str:

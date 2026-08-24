@@ -42,17 +42,9 @@ class FastPath:
             return None
 
         # --- kimlik soruları (LLM'e gitmeden tutarlı cevap) ---
-        _kimlik = re.search(
-            r"\b(kimsin|kim(dir)?sin|adın ne|ismin ne|seni kim (yaptı|oluşturdu|programladı|geliştirdi|kurdu)|kim (yaptı|kurdu|geliştirdi) seni|nasıl (yapıldın|oluşturuldun))\b",
-            t
-        )
-        if _kimlik:
-            return "Ben ELİŞA — sana yardımcı olmak için yapılmış Türkçe bir sesli asistanım. Bir yazılımcı tarafından tamamen yerel olarak çalışacak şekilde geliştirildi."
-
-        # --- ne yapabilirsin ---
-        if re.search(r"\b(ne yapabilir?sin|neler yapabilir?sin|yeteneklerin|yardım edebilir misin)\b", t):
-            return ("Saat/tarih söylerim, dosya açar/oluştururum, uygulama başlatırım, "
-                    "müzik çalarım, internette araştırma yaparım, ve seninle sohbet ederim!")
+        # --- kimlik soruları EZBERDEN ÇIKARILDI → ajan'a düşer ---
+        # Artık AgentLoop'un [KİMLİK VE YETENEKLERİN] bloğuyla doğal, güncel ve
+        # zengin cevap veriyor (27 araç + aktif model + hafıza sayısı dahil).
 
         # --- dosya oluştur (müzik/uygulama kurallarından ÖNCE) ---
         if self._is_create_file(t):
@@ -161,6 +153,30 @@ class FastPath:
                 p = "~/Documents"
             r = self._run("list_files", {"path": p}, "📁 Dosyaları listeliyorum...")
             return r.message if r.success else f"Listeleyemedim: {r.error}"
+
+        # --- hava durumu: temiz tek satır (wttr.in) ---
+        if "hava" in t and any(w in t for w in ["nasıl", "durumu", "kaç derece", "ne durumda"]):
+            m_city = re.search(
+                r"([\wçğıöşüÇĞİÖŞÜ]{3,})(?:['’]?(?:[dt][ae]|ta|te))?\s+(?:il[inç]?[ae]?)?\s*hava",
+                text, re.I)
+            city = m_city.group(1) if m_city else ""
+            city = {"istanbul": "istanbul"}.get(city.lower(), city.lower() or "istanbul")
+            if city in ("orada", "burada", "hava"):
+                city = "istanbul"
+            try:
+                import requests as _rq
+                _rr = _rq.get(f"https://wttr.in/{city}?format=%c+%t+nem:%h+ruzgar:%w",
+                              timeout=6, headers={"User-Agent": "curl/8"})
+                if _rr.status_code == 200 and _rr.text.strip():
+                    pretty = city[:1].upper() + city[1:]
+                    return f"{pretty} hava durumu: {_rr.text.strip()}"
+            except Exception:
+                pass  # wttr.in erişilemezse aşağıdaki genel aramaya düşer
+
+        # --- haber TAKİPİ → watch_topics aracı (agent yoluna bırak) ---
+        # "haberlerini takip et" gibi istekler web araması DEĞİL, pano izleme kurulumudur
+        if "haber" in t and any(w in t for w in ("takip", "izle", "bildir", "uyar")):
+            return None
 
         # --- web arama (en sonda: site/müzik/uygulama kurallarına çarpmasın) ---
         # NOT: "nedir"/"kimdir" gibi bilgi soruları agent'a bırakılıyor (LLM cevaplar/arar)

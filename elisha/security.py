@@ -5,9 +5,9 @@ from .tools.base import ToolResult
 
 
 CONFIRM_WORDS = {"evet", "onayla", "onaylıyorum", "onayliyorum", "tamam", "tamamdır",
-                 "okey", "ok", "oldu", "devam", "devam et", "yap", "sil"}
+                 "okey", "oldu", "devam et", "onay"}
 DENY_WORDS = {"hayır", "hayir", "vazgeç", "vazgec", "iptal", "dur", "olmasın",
-              "olmasin", "asla", "yeniden düşün", "iptal et"}
+              "olmasin", "asla", "yeniden düşün", "iptal et", "hayr"}
 
 
 class NeedConfirmation(Exception):
@@ -65,12 +65,20 @@ class PermissionManager:
         return True
 
     def classify_reply(self, text: str) -> Optional[bool]:
+        """Evet/hayır sınıflandırma.
+        Güvenlik kuralı: ÖNCE ret kelimeleri kontrol edilir (yanlış onayı engelle),
+        eşleşme tam kelime veya kelime-başı olmalı — 'yaptım'/'silmem' gibi
+        içinde geçenler asla onay sayılmaz."""
         t = (text or "").lower().strip().strip(".!")
-        if any(w == t or (w in t and len(t) <= 25) for w in CONFIRM_WORDS):
-            return True
-        for w in DENY_WORDS:
-            if w == t or (w in t and len(t) <= 25):
+        if not t:
+            return None
+        import re as _re
+        for w in DENY_WORDS:                       # RET önce
+            if t == w or _re.search(rf"\b{w}\b", t):
                 return False
+        for w in CONFIRM_WORDS:                    # sonra onay
+            if t == w or _re.search(rf"\b{w}\b", t):
+                return True
         return None
 
     def resolve(self, registry, user_text: str) -> Optional[ToolResult]:

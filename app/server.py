@@ -2,7 +2,7 @@
 ELİŞA Web Server — Threading + cache + local STT
 Çalıştır: python3 app/server.py  -> http://localhost:8765
 """
-import json, base64, tempfile, threading, time, queue
+import json, base64, tempfile, threading, time, queue, os
 from pathlib import Path
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse
@@ -107,11 +107,23 @@ _STT_HALLUCINATIONS = {
     "...", "…", "♪", "♫", "🎵",
 }
 
+# Bu kelimelerle BAŞLAYAN her cümle hallucination'dur — ELISHA'nın araçları
+# altyazı/abone/video işlemez, gerçek komut bunlarla başlamaz.
+_STT_HALLUC_PREFIXES = (
+    "altyazı", "altyazi", "çeviri", "ceviri",
+    "abone ol", "abone olun", "beğen", "begen",
+    "videoyu beğen", "kanala abone", "izleyin", "bildirimi açın",
+    "like and subscribe", "subscribe",
+)
+
 def _is_hallucination(text: str) -> bool:
     """Whisper'ın arka plan gürültüsünü şarkı/altyazı gibi yanlış tanıması."""
     t = text.lower().strip().rstrip(".")
     if t in _STT_HALLUCINATIONS:
         return True
+    for p in _STT_HALLUC_PREFIXES:
+        if t.startswith(p):
+            return True
     # Çok kısa veya sadece noktalama
     if len(t) < 2:
         return True
@@ -173,33 +185,86 @@ def _do_listen_inner(rid: str, duration: float):
         return
 
     try:
-        model = _get_whisper()
-        from elisha.stt.engine import INITIAL_PROMPT_TR, _normalize_audio, _post_process_turkish
-        import warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            # Audio normalize (sessiz/yüksek kayıtları düzelt)
-            audio_f = _normalize_audio(audio)
-            segs, info = model.transcribe(
-                audio_f,
-                language="tr",
-                vad_filter=False,          # kendi VAD'ımız zaten sesi ayıkladı
-                beam_size=5,
-                best_of=3,
-                patience=1.5,
-                temperature=0.0,           # deterministik
-                initial_prompt=INITIAL_PROMPT_TR,
-                no_speech_threshold=0.4,
-                log_prob_threshold=-0.8,
-                condition_on_previous_text=False,
-                compression_ratio_threshold=2.4,
-                word_timestamps=False,
-            )
-        text = " ".join(s.text for s in segs).strip()
-        # Post-processing: bilinen Türkçe hatalarını düzelt
-        text = _post_process_turkish(text)
-        log("STT", f"transkripsiyon: {text!r}  (lang={info.language} conf={info.language_probability:.2f})")
-        # Hallucination filtresi
+        text = ""
+        # ── 1) Groq bulut STT (whisper-large-v3-turbo, ~0.5sn) ──────────
+        groq_key = os.environ.get("GROQ_API_KEY", "")
+        stt_mode = "auto"
+        try:
+            from elisha.config import load_config
+            stt_mode = load_config().get("stt", {}).get("provider", "auto")
+        except Exception:
+            pass
+        if groq_key and stt_mode in ("auto", "groq"):
+            try:
+                import time as _t, urllib.request as _ur, json as _js, uuid as _u
+                import soundfile as sf_w
+                t0 = _t.time()
+                wav_tmp = f"/tmp/elisha_stt_{_u.uuid4().hex}.wav"
+                sf_w.write(wav_tmp, audio, 16000)
+                # multipart gövdeyi elle kur (requests bağımlılığı yok)
+                boundary = _u.uuid4().hex
+                parts = []
+                def _field(name, val):
+                    return (f"--{boundary}\r\nContent-Disposition: form-data; "
+                            f"name=\"{name}\"\r\n\r\n{val}\r\n").encode()
+                with open(wav_tmp, "rb") as fh:
+                    wav_bytes = fh.read()
+                body = b"".join([
+                    _field("model", "whisper-large-v3-turbo"),
+                    _field("language", "tr"),
+                    _field("response_format", "json"),
+                    f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; "
+                    f"filename=\"audio.wav\"\r\nContent-Type: audio/wav\r\n\r\n".encode(),
+                    wav_bytes, f"\r\n--{boundary}--\r\n".encode(),
+                ])
+                req = _ur.Request(
+                    "https://api.groq.com/openai/v1/audio/transcriptions",
+                    data=body, method="POST",
+                    # User-Agent ŞART: Python-urllib varsayılanı Cloudflare
+                    # tarafından engelleniyor (error 1010) → 403!
+                    headers={"Authorization": f"Bearer {groq_key}",
+                             "Content-Type": f"multipart/form-data; boundary={boundary}",
+                             "User-Agent": "elisha/4.0"})
+                with _ur.urlopen(req, timeout=10) as resp:
+                    text = (_js.loads(resp.read()).get("text") or "").strip()
+                from elisha.stt.engine import _post_process_turkish
+                text = _post_process_turkish(text)
+                log("STT", f"⚡ groq ({(_t.time()-t0)*1000:.0f}ms): {text!r}")
+                try: Path(wav_tmp).unlink()
+                except Exception: pass
+            except Exception as e:
+                log("STT", f"groq başarısız ({e}) → yerel whisper")
+                text = ""
+        # ── 2) Yerel faster-whisper yedeği ───────────────────────────────
+        if not text:
+            model = _get_whisper()
+            from elisha.stt.engine import INITIAL_PROMPT_TR, HOTWORDS_TR, _normalize_audio, _post_process_turkish
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                # Audio normalize (sessiz/yüksek kayıtları düzelt)
+                audio_f = _normalize_audio(audio)
+                segs, info = model.transcribe(
+                    audio_f,
+                    language="tr",
+                    vad_filter=False,          # kendi VAD'ımız zaten sesi ayıkladı
+                    beam_size=5,
+                    best_of=3,
+                    patience=1.5,
+                    temperature=0.0,           # deterministik
+                    initial_prompt=INITIAL_PROMPT_TR,
+                    hotwords=HOTWORDS_TR,      # komut kelimelerine decode önyargısı
+                    no_speech_threshold=0.4,
+                    log_prob_threshold=-0.8,
+                    condition_on_previous_text=False,
+                    compression_ratio_threshold=2.4,
+                    word_timestamps=False,
+                )
+            text = " ".join(s.text for s in segs).strip()
+            # Post-processing: bilinen Türkçe hatalarını düzelt
+            text = _post_process_turkish(text)
+            log("STT", f"transkripsiyon: {text!r}  (lang={info.language} conf={info.language_probability:.2f})")
+        # Hallucination filtresi (bulut + yerel ikisi için de)
         if _is_hallucination(text):
             log("STT", f"hallucination atlandı: {text!r}")
             _listen_jobs[rid] = {"status": "done", "text": "", "silent": True}
@@ -260,15 +325,46 @@ _tts_lock = threading.Lock()
 
 # Konuşma durumu — barge-in ve UI senkronizasyonu için
 _speak_state = {"active": False, "barge": False}
+_speak_gen = 0  # her _speak_async çağrısında artar (mute-flag yarışı koruması)
 
 _TTS_MUTE_FLAG = Path("/tmp/elisha_tts_active")
 _MIC_ACTIVE_FLAG = Path("/tmp/elisha_mic_active")
 _BARGE_FLAG = Path("/tmp/elisha_barge")
 
+# ── Sabah Brifingi (Mark-LI 'Morning Briefing' esinli): günde bir kez ──
+_BRIEFING_LOCK = threading.Lock()
+
+def _maybe_briefing(bot):
+    """Bugünün brifingi henüz söylenmediyse oluştur + seslendir + döndür.
+    05:00–12:00 arası ilk /api/status çağrısında tetiklenir."""
+    import datetime as _dt
+    now = _dt.datetime.now()
+    if not (5 <= now.hour < 12):
+        return None
+    today = now.strftime("%Y-%m-%d")
+    with _BRIEFING_LOCK:
+        try:
+            if settings.get("last_briefing_date") == today:
+                return None
+            settings.set_many({"last_briefing_date": today})
+            from elisha.briefing import compose as _compose
+            text = _compose(bot.config if hasattr(bot, "config") else {},
+                            getattr(bot, "memory", None))
+            threading.Thread(target=_speak_async, args=(text,), daemon=True).start()
+            return text
+        except Exception as e:
+            log("BRIEFING", f"brifing hatası: {e}")
+            return None
+
+
 def _clean_for_tts(text: str) -> str:
     """LLM cevabını seslendirmeye uygun hale getir: markdown/kod/URL temizle."""
     import re as _re
     t = text.strip()
+    # Türkçe telaffuz: model "ELISHA" yazsa bile Piper "ELİŞA" diye okusun
+    t = _re.sub(r'\bELISHA\b', 'ELİŞA', t)
+    t = _re.sub(r'\bElisha\b', 'Elişa', t)
+    t = _re.sub(r'\bJARVIS\b', 'Cavis', t)   # İngilizce okunuş düzeltmesi
     t = _re.sub(r'\[ACTION:[^\]]+\]', '', t)
     t = _re.sub(r'```[\s\S]*?```', ' kod örneği hazırladım. ', t)   # kod blokları okunmaz
     t = _re.sub(r'`[^`\n]+`', '', t)                                 # inline kod
@@ -328,12 +424,15 @@ def _barge_monitor(proc, threshold=None, sustain_blocks=5, grace_s=None):
 def _speak_async(text: str):
     """Cevabı seslendir: Piper (en iyi) → pyttsx3 (yedek).
     Sırasında: wake daemon susturulur + kullanıcı sözü keserse barge-in."""
+    global _speak_gen
     clean = _clean_for_tts(text)
     if len(clean) < 2:
         return
     # Wake daemon'ı sustur (chime dahil tüm süre)
     try: _TTS_MUTE_FLAG.write_text("1")
     except Exception: pass
+    _speak_gen += 1
+    _mygen = _speak_gen          # ardışık konuşmalarda eski Timer yeni bayrağı silmesin
     _speak_state["active"] = True
     _speak_state["barge"] = False
     try: _BARGE_FLAG.unlink(missing_ok=True)
@@ -381,8 +480,11 @@ def _speak_async(text: str):
                     log("TTS", f"pyttsx3 hata: {e}")
     finally:
         _speak_state["active"] = False
-        # yankı kuyruğu bitmeden wake'i açma
-        threading.Timer(0.6, lambda: _TTS_MUTE_FLAG.unlink(missing_ok=True)).start()
+        # yankı kuyruğu bitmeden wake'i açma — ama yalnızca bu konuşma en sonsa
+        def _unmute(g=_mygen):
+            if _speak_gen == g:
+                _TTS_MUTE_FLAG.unlink(missing_ok=True)
+        threading.Timer(0.6, _unmute).start()
 
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
@@ -415,7 +517,8 @@ class Handler(SimpleHTTPRequestHandler):
                 bot = get_bot()
                 providers = bot.llm.router.available_providers if hasattr(bot.llm, 'router') else []
                 primary = bot.llm.router.primary_provider if hasattr(bot.llm, 'router') else None
-                self._json(200, {
+                briefing_txt = _maybe_briefing(bot)
+                payload = {
                     "name": "ELİŞA",
                     "stt": bot.stt.provider,
                     "tts": bot.tts.provider,
@@ -423,10 +526,44 @@ class Handler(SimpleHTTPRequestHandler):
                     "provider": primary.name if primary else bot.llm.provider,
                     "providers": providers,
                     "wake": "hey elişa uyan",
-                })
+                }
+                try:
+                    from elisha.live_voice import is_enabled as _live_on
+                    payload["live"] = bool(_live_on())
+                except Exception:
+                    payload["live"] = False
+                if briefing_txt:
+                    payload["briefing"] = briefing_txt
+                try:
+                    from elisha.news_watch import pop_pending as _pop_news
+                    news = _pop_news()
+                    if news:
+                        payload["news"] = news
+                except Exception:
+                    pass
+                try:
+                    from elisha.clipboard_intel import pop_pending as _pop_clip
+                    clip = _pop_clip()
+                    if clip and clip.get("text"):
+                        payload["clipboard"] = {"text": clip["text"]}
+                except Exception:
+                    pass
+                self._json(200, payload)
                 return
             if parsed.path == "/api/health":
                 self._json(200, {"ok": True})
+                return
+            if parsed.path == "/api/live/status":
+                try:
+                    from elisha.live_voice import is_active
+                    self._json(200, {"active": bool(is_active())})
+                except Exception:
+                    self._json(200, {"active": False})
+                return
+            if parsed.path == "/api/mic_level":
+                # Gerçek zamanlı giriş seviyesi (UI küre animasyonu)
+                self._json(200, {"rms": round(_MIC_LEVEL["rms"], 4),
+                                 "ts": _MIC_LEVEL["ts"]})
                 return
             if parsed.path == "/api/barge":
                 # UI konuşma bitişini ve söz kesmeyi buradan öğrenir
@@ -442,7 +579,9 @@ class Handler(SimpleHTTPRequestHandler):
                 if p.exists():
                     try:
                         txt = p.read_text().strip(); p.unlink()
-                        self._json(200, {"wake": True, "text": txt}); return
+                        import time as _t
+                        self._json(200, {"wake": True, "text": txt,
+                                         "ts": _t.time()}); return
                     except: pass
                 self._json(200, {"wake": False})
                 return
@@ -508,13 +647,37 @@ class Handler(SimpleHTTPRequestHandler):
                     self._json(404, {"error": f"{gender} sesi yüklü değil. voices/ klasörüne model dosyasını indirin."})
                 return
 
+            if parsed.path == "/api/live":
+                # Gemini Live canlı ses oturumu — kullanıcı "kapat kendini" deyene kadar
+                def _live_run():
+                    try:
+                        from elisha.live_voice import run_session
+                        ok = run_session()
+                        log("LIVE", f"oturum bitti (ok={ok})")
+                    except Exception as _le:
+                        log("LIVE", f"oturum hatası: {_le}")
+                threading.Thread(target=_live_run, daemon=True).start()
+                self._json(202, {"started": True})
+                return
+            if parsed.path == "/api/live/status":
+                try:
+                    from elisha.live_voice import is_active
+                    self._json(200, {"active": bool(is_active())})
+                except Exception:
+                    self._json(200, {"active": False})
+                return
             if parsed.path == "/api/listen":
                 # Async kayıt: hemen 202 döner, JS /api/listen/result poll eder
                 import uuid as _uuid
                 rid = _uuid.uuid4().hex
                 data = json.loads(body) if body else {}
                 duration = min(float(data.get("duration", 5)), 10)
-                _listen_jobs[rid] = {"status": "recording"}
+                # Budama: 15 dk'dan eski işleri sil (bellek sızıntısı önlemi)
+                _now = time.time()
+                for k in [k for k, v in list(_listen_jobs.items())
+                          if v.get("_ts", 0) < _now - 900]:
+                    _listen_jobs.pop(k, None)
+                _listen_jobs[rid] = {"status": "recording", "_ts": _now}
                 import threading as _th
                 _th.Thread(target=_do_listen, args=(rid, duration), daemon=True).start()
                 return self._json(202, {"id": rid})
@@ -663,6 +826,66 @@ class Handler(SimpleHTTPRequestHandler):
                 threading.Thread(target=_speak_async, args=(val,), daemon=True).start()
                 break
 
+# ── Canlı mikrofon seviyesi (UI küre animasyonu için) ─────────────────────
+_MIC_LEVEL = {"rms": 0.0, "ts": 0.0}
+_mic_mon_started = False
+
+def ensure_mic_monitor():
+    """Mikrofon seviye izleyicisini (bir kez) başlat.
+    Hem main() hem desktop_app.start_server() çağırabilir — idempotent."""
+    global _mic_mon_started
+    if _mic_mon_started:
+        return
+    _mic_mon_started = True
+    threading.Thread(target=_mic_level_monitor, daemon=True).start()
+    # Pano izleme (Mark-LI 'Background Monitoring' esinli): konu haberlerini takip et
+    try:
+        from elisha.news_watch import start as _watch_start
+        _watch_start(_speak_async)
+    except Exception as _we:
+        log("WATCH", f"başlatılamadı: {_we}")
+    # Donanım izleme (Mark-LI 'Hardware Monitoring' esinli): ısı/yük uyarısı
+    try:
+        from elisha.hw_monitor import start as _hw_start
+        _hw_start(_speak_async)
+    except Exception as _he:
+        log("HW", f"başlatılamadı: {_he}")
+    # Uzaktan kumanda (Mark-LI 'Remote Dashboard' esinli): QR → telefondan kontrol
+    try:
+        from elisha.remote_dashboard import start as _remote_start
+        _remote_start()
+    except Exception as _re:
+        log("REMOTE", f"başlatılamadı: {_re}")
+    # Pano zekası (Mark-LI 'Clipboard Intelligence' esinli): kopyala → HUD çipleri
+    try:
+        from elisha.clipboard_intel import start as _clip_start
+        _clip_start()
+    except Exception as _ce:
+        log("CLIP", f"başlatılamadı: {_ce}")
+
+def _mic_level_monitor():
+    """Arka planda sürekli düşük hacimli RMS ölçümü.
+    sounddevice ikinci bir InputStream açamazsa sessizce vazgeçer
+    → UI simülasyona döner."""
+    try:
+        import numpy as _np
+        import sounddevice as _sd
+
+        def _cb(indata, frames, _t, _status):
+            rms = float(_np.sqrt(_np.mean(indata[:, 0] ** 2)))
+            _MIC_LEVEL["rms"] = min(rms, 1.0)
+            _MIC_LEVEL["ts"] = time.time()
+
+        with _sd.InputStream(samplerate=16000, channels=1, dtype="float32",
+                             blocksize=int(16000 * 0.05), callback=_cb):
+            while True:
+                time.sleep(0.25)
+                # bayat veri: cihaz değişti/koptu → sıfırla
+                if time.time() - _MIC_LEVEL["ts"] > 2.0:
+                    _MIC_LEVEL["rms"] = 0.0
+    except Exception as e:
+        log("MICLV", f"seviye izleyici yok ({e}) — UI simülasyon kullanır")
+
 def main():
     WEB_DIR.mkdir(parents=True, exist_ok=True)
     # başlangıçta ısıt (arka planda, server hemen açılsın)
@@ -671,6 +894,8 @@ def main():
         try: get_piper()
         except Exception as e: err(f"piper warmup: {e}")
     threading.Thread(target=_warm_piper, daemon=True).start()
+    # canlı mikrofon seviyesi izleyici (UI görselleştirme)
+    ensure_mic_monitor()
     httpd = ThreadingHTTPServer(("", PORT), Handler)  # ÇOKLU THREAD - Failed to fetch fix
     httpd.daemon_threads = True
     log("SERVER", f"✨ web http://localhost:{PORT} (threading)")

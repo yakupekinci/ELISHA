@@ -70,8 +70,10 @@ class ListFilesTool(Tool):
 
 class ReadFileTool(Tool):
     name = "read_file"
-    description = ("Bir metin dosyasının içeriğini okur. Kullanıcı dosya okumayı/özetlemeyi isterse kullan. "
-                   "path parametresi zorunlu. PDF gibi ikili formatlarda ham içerik anlamsız olabilir.")
+    description = ("Bir dosyanın içeriğini okur (metin VE PDF). Kullanıcı dosya okumayı, "
+                   "PDF özetlemeyi veya belge hakkında soru sormayı isterse kullan. "
+                   "path parametresi zorunlu. Görsellerde kullanma — analyze_screen ya da "
+                   "açıklama ister.")
     parameters = {
         "type": "object",
         "properties": {"path": {"type": "string", "description": "Okunacak dosyanın tam yolu"}},
@@ -85,6 +87,40 @@ class ReadFileTool(Tool):
             return ToolResult(False, self.name, error=f"Dosya bulunamadı: {f}")
         if f.is_dir():
             return ToolResult(False, self.name, error=f"{f} bir klasör, read_file yerine list_files kullan.")
+        # PDF: pypdf ile metin çıkart (Mark-LI 'File Processor' esinli)
+        if f.suffix.lower() == ".pdf":
+            try:
+                from pypdf import PdfReader
+                reader = PdfReader(str(f))
+                pages = []
+                for i, page in enumerate(reader.pages[:10]):
+                    pages.append(page.extract_text() or "")
+                text = "\n".join(pages).strip()
+                n = len(reader.pages)
+                if not text:
+                    return ToolResult(False, self.name,
+                                      error=f"'{f.name}' PDF'inden metin çıkartılamadı (taranmış/görsel olabilir).")
+                note = f" (ilk {min(10, n)}/{n} sayfa)" if n > 10 else ""
+                return ToolResult(True, self.name,
+                                  message=f"'{f.name}' okundu{note}. İçerik:",
+                                  data={"text": text[:6000], "pages": n})
+            except Exception as e:
+                return ToolResult(False, self.name, error=f"PDF okunamadı: {e}")
+        # Görsel / ikili dosya koruması: metin modeli görsel analiz edemez,
+        # ham okuma bozuk karakter üretir ve sağlayıcı hatasına yol açar.
+        _IMG_EXT = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tiff", ".heic", ".ico", ".svg", ".zip", ".dmg", ".app"}
+        _IMG_MAGIC = (b"\x89PNG", b"\xff\xd8\xff", b"GIF8", b"BM", b"%PDF", b"PK\x03\x04")
+        try:
+            head = f.open("rb").read(16)
+        except Exception:
+            head = b""
+        if f.suffix.lower() in _IMG_EXT or any(head.startswith(m) for m in _IMG_MAGIC):
+            return ToolResult(
+                False, self.name,
+                error=(f"'{f.name}' bir ikili/görsel dosya; metin olarak okunamaz ve "
+                       "görsel analizi yapılamıyor. Kullanıcıya bunu açıkla; ekran görüntüsü "
+                       "analizi şu an desteklenmiyor."),
+            )
         try:
             text = f.read_text(encoding="utf-8", errors="ignore")
         except Exception as e:

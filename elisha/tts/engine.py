@@ -29,6 +29,12 @@ class TTSEngine:
         self.speed = config.get("tts", {}).get("speed", 1.0)
         self.model_path = config.get("tts", {}).get("piper_model_path", "./voices/tr_TR-dfki-medium.onnx")
         self._engine = None
+        # macOS 'say' (Yelda) erişilebilirlik kontrolü — ayarlardan seçilebilir
+        try:
+            import shutil as _sh
+            self._say_available = bool(_sh.which("say"))
+        except Exception:
+            self._say_available = False
         self._init_engine()
 
     def _resolve_model_path(self) -> Path:
@@ -164,7 +170,23 @@ class TTSEngine:
         if not text:
             return
         print(f"🔊 ELİŞA: {text}")
+        # Ayarlaristan seçilmiş ses motoru (piper / say-Yelda) — canlı geçerli
+        engine_choice = self.provider
         try:
+            from .. import settings as _settings
+            choice = str(_settings.get("tts_engine") or "").lower()
+            if choice == "say" and getattr(self, "_say_available", False):
+                engine_choice = "say"
+        except Exception:
+            pass
+        try:
+            if engine_choice == "say":
+                import subprocess as _sp
+                voice = (self.config.get("tts", {}).get("say_voice") or "Yelda")
+                _sp.run(["say", "-v", voice, "-r",
+                         str(int(180 * min(1.6, max(0.7, self.speed or 1.0)))) , text],
+                        capture_output=True, timeout=120)
+                return
             if self.provider == "piper":
                 if isinstance(self._engine, str) and self._engine == "piper_cli":
                     self._speak_piper_cli(text)

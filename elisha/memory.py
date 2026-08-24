@@ -69,6 +69,16 @@ class MemoryStore:
                 "ORDER BY id DESC LIMIT ?", (sid, int(limit))).fetchall()
         return [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
 
+    def clear_conversations(self, session_id: Optional[str] = None) -> int:
+        """Oturum konuşma geçmişini sıfırla (uzun süreli anılar KORUNUR).
+        Bozuk/halüsinasyon içeren geçmişi temizlemek için."""
+        sid = session_id or self.session_id
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM conversations WHERE session_id = ?", (sid,))
+            self._conn.commit()
+            return cur.rowcount
+
     # ---------- memories ----------
 
     def remember(self, key: str, value: str, category: str = "genel",

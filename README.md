@@ -113,3 +113,32 @@ MIT — İstediğin gibi değiştir, dağıt.
 
 ---
 Yapıldı: Muse Spark 1.2 Free (High) ile — ELİŞA V1
+
+---
+## 🔐 Yeni Makinede Kurulum
+
+```bash
+# 1) Anahtarları şifreli yedekten geri yükle (parola repo'da YOK — sahibinde)
+./scripts/secrets.sh restore
+
+# 2) Türkçe Piper sesini indir (~60MB)
+mkdir -p voices && cd voices
+curl -L -o tr_TR-dfki-medium.onnx \
+  "https://huggingface.co/rhasspy/piper-voices/resolve/main/tr/tr_TR/dfki/medium/tr_TR-dfki-medium.onnx"
+curl -L -o tr_TR-dfki-medium.onnx.json \
+  "https://huggingface.co/rhasspy/piper-voices/resolve/main/tr/tr_TR/dfki/medium/tr_TR-dfki-medium.onnx.json"
+
+# 3) Başlat
+./ELİŞA.command
+```
+
+Şablon: `config/secrets.env.example` • Şifreli paket: `config/secrets.env.enc` (AES-256-CBC + PBKDF2)
+
+## ✨ Son Sürüm Özellikleri (V2 "Tam Yardımcı")
+- 🔴 **Gemini Live** gerçek zamanlı ses (<1sn, "hey elişa" → canlı sohbet, "kapat kendini" ile biter)
+- 🧠 **40 araç**: sistem kontrolü, medya, uygulamalar, YouTube arama+oynatma, uçuş, oyun güncelleyici, WhatsApp/Telegram mesaj hazırlama, PDF, ekran+kamera görüşü
+- 📱 **QR Uzaktan Kumanda** (telefondan, token korumalı LAN sunucusu)
+- 📋 **Pano Zekası** (kopyala → Çevir/Özetle/Açıkla/Düzelt çipleri)
+- 📊 **Donanım izleme** (fansız MacBook için sesli ısı uyarısı) + **otomatik başlatma**
+- 🌅 Sabah brifingi (dünkü konuları hatırlar) + 🔔 haber takibi + 🧩 eklenti sistemi
+- 🇹🇷 Hibrit Türkçe wake word (enerji segmentasyonu + whisper doğrulama)

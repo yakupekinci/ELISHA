@@ -77,8 +77,18 @@ def main():
     from elisha.wakeword.detector import WakeWordDetector
     from elisha.config import load_config
     import sounddevice as sd
+    import numpy as _np0
+    _np0.seterr(all="ignore")  # whisper mel-spec overflow uyarılarını sustur
 
     cfg = load_config()
+    # Kalıcılık: /tmp bayrağı reboot'ta silinir — ayarlara göre garantiye al
+    try:
+        from elisha import settings as _settings
+        if _settings.get("wake_enabled", True):
+            Path("/tmp/elisha_wake_enabled").write_text("1")
+            print("✅ Wake bayrağı ayarlardan doğrulandı (kalıcı açık)")
+    except Exception as e:
+        print(f"wake bayrağı kontrol hatası: {e}")
     # wake word detector
     det = WakeWordDetector(cfg)
     print(f"Wake mod: {getattr(det,'_mode','?')}, words: {det.wake_words}")
@@ -105,52 +115,110 @@ def main():
 
 
 def _run_openwakeword_loop(det, cfg):
-    """openWakeWord ile ultra hafif sürekli dinleme — CPU %1-2."""
+    """HİBRİT wake:
+    1) openWakeWord skoru eşiği aşarsa anında tetikle (İngilizce benzer sesler)
+    2) Konuşma patlaması bitince tiny-whisper ile doğrula — Türkçe 'hey elişa'
+       asıl yolu bu. CPU: sadece konuşma varken kısa transcribe."""
     import sounddevice as sd
     import time
+    import numpy as _np
 
     sr = 16000
     chunk_samples = 1280  # 80ms @ 16kHz
     threshold = cfg.get("wakeword", {}).get("threshold", 0.5)
 
     consecutive_triggers = 0
-    required_consecutive = 2  # 2 ardışık pozitif → tetikle (yanlış alarm azalt)
+    required_consecutive = 2
+
+    # ── Semantic doğrulayıcı (tiny whisper, lazy) ──
+    verifier = {"model": None}
+    def _verify(audio_f32) -> tuple[bool, str]:
+        try:
+            if verifier["model"] is None:
+                from faster_whisper import WhisperModel
+                print("⏳ Wake doğrulayıcı yükleniyor (whisper tiny int8)...")
+                verifier["model"] = WhisperModel("tiny", device="cpu", compute_type="int8")
+                print("✅ Wake doğrulayıcı hazır")
+            segments, _info = verifier["model"].transcribe(
+                audio_f32, language="tr", beam_size=1,
+                no_speech_threshold=0.45, temperature=0.0)
+            text = " ".join(s.text for s in segments).strip()
+            if not text:
+                return False, ""
+            ok = det.check_text_trigger(text)
+            print(f"🔎 Wake doğrulama: '{text}' → {'TETİK' if ok else 'geç'}")
+            return ok, text
+        except Exception as e:
+            print(f"doğrulama hatası: {e}")
+            return False, ""
+
+    # ── Konuşma patlaması takibi ──
+    buffer = []           # float32 chunk listesi (konuşurken)
+    silence_ms = 0
+    speech_ms = 0
+    was_speech = False
+    ENERGY_ON = 0.012     # konuşma başlangıcı
+    ENERGY_OFF = 0.007    # konuşma bitişi
+    CHUNK_MS = 80
+
+    def _fire(label, transcript=""):
+        print(f"✨ WAKE TETİKLENDİ ({label})! {transcript[:60]}")
+        ensure_gui()
+        try:
+            cmd = det.strip_wake_word(transcript) if transcript else ""
+            Path("/tmp/elisha_wake").write_text(cmd)
+        except Exception:
+            pass
+        time.sleep(6)  # kendi TTS'imizi duymasın
 
     while True:
         if not Path("/tmp/elisha_wake_enabled").exists() or _blocked():
             time.sleep(0.5)
+            buffer = []; speech_ms = 0; silence_ms = 0; was_speech = False
             continue
         try:
-            # 80ms kayıt
             rec = sd.rec(chunk_samples, samplerate=sr, channels=1, dtype='float32')
             sd.wait()
             chunk = rec.flatten()
+            energy = float(_np.sqrt(_np.mean(chunk ** 2)))
 
-            # Enerji kapısı: mutlak sessizlikte model çalıştırma (CPU + yanlış alarm azalt)
-            import numpy as _np
-            if float(_np.sqrt(_np.mean(chunk ** 2))) < 0.004:
-                consecutive_triggers = 0
-                continue
-
+            # ── Yol 1: openWakeWord anlık skor (hafif, sürekli) ──
             pred = det._engine.predict(chunk)
-            score = pred.get("hey_jarvis", 0.0)
-
+            score = max(pred.values()) if pred else 0.0
             if score > threshold:
                 consecutive_triggers += 1
                 if consecutive_triggers >= required_consecutive:
-                    print(f"✨ openWakeWord TETİKLENDİ! score={score:.3f} (x{consecutive_triggers})")
-                    consecutive_triggers = 0
-                    ensure_gui()
-                    try:
-                        Path("/tmp/elisha_wake").write_text(f"hey_jarvis score={score:.2f}")
-                    except:
-                        pass
-                    print("GUI komut dinliyor... 8 sn bekle")
-                    # Reset model buffer (yanlış tekrar tetikleme önle)
                     det._engine.reset()
-                    time.sleep(8)
+                    _fire(f"jarvis score={score:.2f}")
+                    buffer = []; was_speech = False; speech_ms = 0
+                    continue
             else:
                 consecutive_triggers = 0
+
+            # ── Yol 2: enerji segmentasyonu + semantic doğrulama ──
+            if energy >= ENERGY_ON or (was_speech and energy > ENERGY_OFF):
+                buffer.append(chunk)
+                speech_ms += CHUNK_MS
+                silence_ms = 0
+                was_speech = True
+            elif was_speech:
+                silence_ms += CHUNK_MS
+                buffer.append(chunk)
+                if silence_ms >= 320:  # ~4 sessiz chunk = konuşma bitti
+                    if speech_ms >= 500:  # çok kısa gürültüyü atla
+                        audio = _np.concatenate(buffer)[: sr * 5]
+                        triggered, txt = _verify(audio)
+                        if triggered:
+                            _fire("semantic", txt)
+                    buffer = []
+                    was_speech = False
+                    speech_ms = 0
+                    silence_ms = 0
+            else:
+                # tam sessizlik — buffer'ı taze tut (son 1sn kalsın)
+                buffer.append(chunk)
+                if len(buffer) > 12:
+                    buffer = buffer[-12:]
 
         except KeyboardInterrupt:
             print("\nDaemon durdu")
